@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../api/api_exception.dart';
+import '../api/plantpal_api.dart';
 import '../theme/pp_theme.dart';
 import '../widgets/pp_common.dart';
 
@@ -11,15 +13,24 @@ class _Msg {
 }
 
 class DiagnosisScreen extends StatefulWidget {
-  const DiagnosisScreen({super.key});
+  const DiagnosisScreen({super.key, this.sessionId});
+
+  /// When set, the screen drives a real `/diagnosis/{id}` session. When null
+  /// it shows a local sample conversation (opened from a plant, not a scan).
+  final String? sessionId;
 
   @override
   State<DiagnosisScreen> createState() => _DiagnosisScreenState();
 }
 
 class _DiagnosisScreenState extends State<DiagnosisScreen> {
+  final _api = PlantPalApi.instance;
   final _draft = TextEditingController();
   final _scroll = ScrollController();
+  bool _sending = false;
+
+  bool get _live => widget.sessionId != null && widget.sessionId!.isNotEmpty;
+
   final List<_Msg> _chat = [
     const _Msg(
       "I see brown crisp edges on the lower leaves and slight yellowing — that reads as underwatering plus low humidity, not a fungal issue.",
@@ -29,28 +40,75 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    if (_live) _loadHistory();
+  }
+
+  @override
   void dispose() {
     _draft.dispose();
     _scroll.dispose();
     super.dispose();
   }
 
-  void _send() {
+  Future<void> _loadHistory() async {
+    try {
+      final session = await _api.diagnosisHistory(widget.sessionId!);
+      if (!mounted) return;
+      setState(() {
+        _chat
+          ..clear()
+          ..addAll(session.messages
+              .map((m) => _Msg(m.text, me: m.fromUser)));
+      });
+      _jump();
+    } catch (_) {
+      // Keep whatever the start response already showed.
+    }
+  }
+
+  Future<void> _send() async {
     final text = _draft.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _sending) return;
     setState(() {
       _chat.add(_Msg(text, me: true));
       _draft.clear();
+      _sending = true;
     });
     _jump();
-    Future.delayed(const Duration(milliseconds: 700), () {
+
+    if (!_live) {
+      await Future.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
-      setState(() => _chat.add(const _Msg(
-            "West light is fine — just pull it back about a metre so the midday sun isn't direct, and mist the leaves twice a week.",
-            me: false,
-          )));
+      setState(() {
+        _chat.add(const _Msg(
+          "West light is fine — just pull it back about a metre so the midday sun isn't direct, and mist the leaves twice a week.",
+          me: false,
+        ));
+        _sending = false;
+      });
       _jump();
-    });
+      return;
+    }
+
+    try {
+      final session =
+          await _api.sendDiagnosisMessage(widget.sessionId!, text);
+      if (!mounted) return;
+      setState(() {
+        _chat
+          ..clear()
+          ..addAll(session.messages.map((m) => _Msg(m.text, me: m.fromUser)));
+      });
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _chat.add(_Msg('(${e.message})', me: false)));
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+      _jump();
+    }
   }
 
   void _jump() {
@@ -156,14 +214,36 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  _likelyIssueCard(),
-                  const SizedBox(height: 12),
-                  _treatmentCard(),
-                  const SizedBox(height: 12),
+                  if (!_live) ...[
+                    _likelyIssueCard(),
+                    const SizedBox(height: 12),
+                    _treatmentCard(),
+                    const SizedBox(height: 12),
+                  ],
                   for (final m in _chat) ...[
                     _bubble(m),
                     const SizedBox(height: 12),
                   ],
+                  if (_sending)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: PP.forest),
+                          ),
+                          const SizedBox(width: 10),
+                          Text('Plant doctor is typing…',
+                              style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w500,
+                                  color: PP.inkA(0.5))),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),

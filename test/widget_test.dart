@@ -1,19 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:plant_app/main.dart';
+import 'package:plant_app/state/auth_scope.dart';
 
 void main() {
-  testWidgets('Welcome screen renders and routes into the app', (tester) async {
-    await tester.pumpWidget(const PlantPalApp());
-    await tester.pumpAndSettle();
+  testWidgets('App boots to the welcome screen when signed out', (tester) async {
+    final auth = AuthController.instance;
+    auth.status = AuthStatus.signedOut;
+
+    await tester.pumpWidget(PlantPalApp(auth: auth));
+    await tester.pump();
 
     expect(find.text('Know every\nleaf you own.'), findsOneWidget);
     expect(find.text('Get started'), findsOneWidget);
-
-    await tester.tap(find.text('Get started'));
-    await tester.pumpAndSettle();
-
-    // Lands on Home inside the root shell.
-    expect(find.text('Two plants need\nyou today.'), findsOneWidget);
   });
 }

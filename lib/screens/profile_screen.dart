@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../api/api_exception.dart';
+import '../api/plantpal_api.dart';
+import '../models/models.dart';
+import '../state/auth_scope.dart';
 import '../theme/pp_theme.dart';
+import '../widgets/async_view.dart';
 import '../widgets/pp_common.dart';
 import 'community_screen.dart';
 import 'states_screen.dart';
-import 'welcome_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -15,122 +19,177 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final Map<String, bool> _notif = {
-    'push': true,
-    'summary': true,
-    'sound': false,
-    'vibrate': true,
-  };
-
-  static const _settings = [
-    ('push', 'Push notifications', 'Watering, feeding, diagnosis'),
-    ('summary', 'Daily summary', 'One digest each morning'),
-    ('sound', 'Sound alerts', 'Chime with each reminder'),
-    ('vibrate', 'Vibration', 'Haptic nudge'),
-  ];
+  final _api = PlantPalApi.instance;
+  NotificationSettings? _settings;
+  final _savingKeys = <String>{};
 
   @override
   Widget build(BuildContext context) {
+    final auth = AuthScope.of(context);
+    final user = auth.user;
     return SafeArea(
       bottom: false,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(22, 20, 22, 120),
+      child: RefreshIndicator(
+        color: PP.forest,
+        onRefresh: () async {
+          await auth.refreshUser();
+          setState(() => _settings = null);
+        },
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(22, 20, 22, 120),
+          children: [
+            _profileCard(user),
+            const SizedBox(height: 26),
+            Text('Notifications',
+                style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: PP.track(19, -0.025))),
+            const SizedBox(height: 12),
+            AsyncView<NotificationSettings>(
+              key: ValueKey(_settings == null),
+              load: () async {
+                _settings ??= await _api.notificationSettings();
+                return _settings!;
+              },
+              builder: (context, s, reload) => _settingsCard(s),
+            ),
+            const SizedBox(height: 26),
+            Text('More',
+                style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: PP.track(19, -0.025))),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(30),
+              ),
+              child: Column(
+                children: [
+                  _moreRow(LucideIcons.users, 'Community',
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const CommunityScreen()))),
+                  _moreRow(LucideIcons.layers, 'Component states',
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const StatesScreen()))),
+                  _moreRow(LucideIcons.circleHelp, 'Help & plant guides'),
+                  _moreRow(LucideIcons.shield, 'Privacy & data'),
+                  _moreRow(LucideIcons.logOut, 'Log out',
+                      danger: true,
+                      border: false,
+                      onTap: () => AuthScope.of(context).logout()),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _settingsCard(NotificationSettings s) {
+    final rows = <(String, String, String, bool, NotificationSettings Function(bool))>[
+      (
+        'push',
+        'Push notifications',
+        'Watering, feeding, diagnosis',
+        s.notificationEnabled,
+        (v) => s.copyWith(notificationEnabled: v),
+      ),
+      (
+        'summary',
+        'Daily summary',
+        'One digest each morning',
+        s.dailySummaryEnabled,
+        (v) => s.copyWith(dailySummaryEnabled: v),
+      ),
+      (
+        'sound',
+        'Sound alerts',
+        'Chime with each reminder',
+        s.soundAlertEnabled,
+        (v) => s.copyWith(soundAlertEnabled: v),
+      ),
+      (
+        'vibrate',
+        'Vibration',
+        'Haptic nudge',
+        s.vibrationEnabled,
+        (v) => s.copyWith(vibrationEnabled: v),
+      ),
+    ];
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Column(
         children: [
-          _profileCard(),
-          const SizedBox(height: 26),
-          Text('Notifications',
-              style: TextStyle(
-                  fontSize: 19,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: PP.track(19, -0.025))),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(30),
+          for (final r in rows)
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 15),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: PP.inkA(0.07))),
+              ),
+              child: Row(
+                children: [
+                  Expanded(child: _settingLabel(r.$2, r.$3)),
+                  Opacity(
+                    opacity: _savingKeys.contains(r.$1) ? 0.5 : 1,
+                    child: PPToggle(
+                      value: r.$4,
+                      onChanged: _savingKeys.contains(r.$1)
+                          ? null
+                          : (v) => _save(r.$1, r.$5(v)),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            child: Column(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 15),
+            child: Row(
               children: [
-                for (final s in _settings)
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    decoration: BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(color: PP.inkA(0.07)),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(child: _settingLabel(s.$2, s.$3)),
-                        PPToggle(
-                          value: _notif[s.$1]!,
-                          onChanged: (v) => setState(() => _notif[s.$1] = v),
-                        ),
-                      ],
-                    ),
-                  ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _settingLabel(
-                            'Preferred time', 'When daily reminders arrive'),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 9),
-                        decoration: BoxDecoration(
-                          color: PP.field,
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: const Text('08:00',
-                            style: TextStyle(
-                                fontSize: 13.5, fontWeight: FontWeight.w600)),
-                      ),
-                    ],
-                  ),
+                Expanded(
+                  child: _settingLabel(
+                      'Preferred time', 'When daily reminders arrive'),
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 26),
-          Text('More',
-              style: TextStyle(
-                  fontSize: 19,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: PP.track(19, -0.025))),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(30),
-            ),
-            child: Column(
-              children: [
-                _moreRow(LucideIcons.users, 'Community', border: true,
-                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => const CommunityScreen()))),
-                _moreRow(LucideIcons.layers, 'Component states', border: true,
-                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => const StatesScreen()))),
-                _moreRow(LucideIcons.circleHelp, 'Help & plant guides',
-                    border: true),
-                _moreRow(LucideIcons.shield, 'Privacy & data', border: true),
-                _moreRow(LucideIcons.logOut, 'Log out',
-                    danger: true,
-                    border: false,
-                    onTap: () => Navigator.of(context).pushAndRemoveUntil(
-                        MaterialPageRoute(builder: (_) => const WelcomeScreen()),
-                        (_) => false)),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: PP.field,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Text(s.preferredTimeLabel,
+                      style: const TextStyle(
+                          fontSize: 13.5, fontWeight: FontWeight.w600)),
+                ),
               ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _save(String key, NotificationSettings next) async {
+    setState(() {
+      _savingKeys.add(key);
+      _settings = next; // optimistic
+    });
+    try {
+      final saved = await _api.updateNotificationSettings(next);
+      setState(() => _settings = saved);
+    } on ApiException catch (e) {
+      if (mounted) showPPSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => _savingKeys.remove(key));
+    }
   }
 
   Widget _settingLabel(String label, String sub) {
@@ -152,7 +211,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _profileCard() {
+  Widget _profileCard(UserProfile? user) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -163,20 +222,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           Row(
             children: [
-              const InitialsAvatar('AT', size: 62, radius: 22, fontSize: 20),
+              InitialsAvatar(user?.initials ?? '🌱',
+                  size: 62, radius: 22, fontSize: 20),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Abel Tesfaye',
+                    Text(user?.fullName ?? 'PlantPal user',
                         style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.w600,
                             letterSpacing: PP.track(20, -0.025),
                             color: PP.bone)),
                     const SizedBox(height: 2),
-                    Text('abel@pitrontech.et',
+                    Text(user?.email ?? '',
                         style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
@@ -197,12 +257,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           const SizedBox(height: 20),
           Row(
-            children: const [
-              Expanded(child: _PStat('12', 'Day streak')),
-              SizedBox(width: 10),
-              Expanded(child: _PStat('148', 'Tasks done')),
-              SizedBox(width: 10),
-              Expanded(child: _PStat('48', 'Journal')),
+            children: [
+              Expanded(
+                  child: _PStat('${user?.careStreakDays ?? 0}', 'Day streak')),
+              const SizedBox(width: 10),
+              Expanded(child: _PStat('${user?.tasksDone ?? 0}', 'Tasks done')),
+              const SizedBox(width: 10),
+              Expanded(
+                  child: _PStat('${user?.journalEntries ?? 0}', 'Journal')),
             ],
           ),
         ],

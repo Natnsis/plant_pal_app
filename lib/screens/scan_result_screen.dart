@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../api/api_exception.dart';
+import '../api/plantpal_api.dart';
+import '../models/models.dart';
 import '../theme/pp_theme.dart';
+import '../widgets/async_view.dart';
 import '../widgets/pp_common.dart';
 import 'root_shell.dart';
 
 class ScanResultScreen extends StatefulWidget {
-  const ScanResultScreen({super.key});
+  const ScanResultScreen({super.key, required this.result});
+
+  final ScanResult result;
 
   @override
   State<ScanResultScreen> createState() => _ScanResultScreenState();
@@ -14,14 +20,24 @@ class ScanResultScreen extends StatefulWidget {
 
 class _ScanResultScreenState extends State<ScanResultScreen>
     with SingleTickerProviderStateMixin {
-  final _nickname = TextEditingController(text: 'Figgy');
+  final _api = PlantPalApi.instance;
+  final _nickname = TextEditingController();
   String _room = 'Living Room';
-  static const _rooms = ['Living Room', 'Bedroom', 'Balcony', '+ New'];
+  static const _rooms = ['Living Room', 'Bedroom', 'Kitchen', 'Balcony', 'Office'];
+  bool _saving = false;
 
   late final AnimationController _glow = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1600),
   )..repeat(reverse: true);
+
+  @override
+  void initState() {
+    super.initState();
+    _nickname.text = widget.result.commonName == 'Identified plant'
+        ? ''
+        : widget.result.commonName;
+  }
 
   @override
   void dispose() {
@@ -30,8 +46,40 @@ class _ScanResultScreenState extends State<ScanResultScreen>
     super.dispose();
   }
 
+  Future<void> _save() async {
+    final r = widget.result;
+    if (r.id == 0) {
+      showPPSnack(context,
+          'This identification has no saved scan id to confirm against.',
+          error: true);
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await _api.confirmScan(
+        r.id,
+        nickname: _nickname.text.trim().isEmpty
+            ? r.commonName
+            : _nickname.text.trim(),
+        location: _room,
+      );
+      if (!mounted) return;
+      showPPSnack(context, 'Added to your plants');
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+            builder: (_) => const RootShell(initialIndex: 1)),
+        (_) => false,
+      );
+    } on ApiException catch (e) {
+      if (mounted) showPPSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final r = widget.result;
     return Scaffold(
       backgroundColor: PP.bone,
       body: SafeArea(
@@ -68,65 +116,58 @@ class _ScanResultScreenState extends State<ScanResultScreen>
                       width: double.infinity,
                       radius: 32,
                       iconSize: 130),
-                  Positioned(
-                    left: 14,
-                    bottom: 14,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 9),
-                      decoration: BoxDecoration(
-                        color: PP.ink,
-                        borderRadius: BorderRadius.circular(22),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          FadeTransition(
-                            opacity: Tween(begin: 0.4, end: 1.0).animate(_glow),
-                            child: Container(
-                              width: 7,
-                              height: 7,
-                              decoration: const BoxDecoration(
-                                  color: PP.lime, shape: BoxShape.circle),
+                  if (r.confidencePercent > 0)
+                    Positioned(
+                      left: 14,
+                      bottom: 14,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 9),
+                        decoration: BoxDecoration(
+                          color: PP.ink,
+                          borderRadius: BorderRadius.circular(22),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            FadeTransition(
+                              opacity:
+                                  Tween(begin: 0.4, end: 1.0).animate(_glow),
+                              child: Container(
+                                width: 7,
+                                height: 7,
+                                decoration: const BoxDecoration(
+                                    color: PP.lime, shape: BoxShape.circle),
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          const Text('97% confidence',
-                              style: TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: PP.bone)),
-                        ],
+                            const SizedBox(width: 8),
+                            Text('${r.confidencePercent}% confidence',
+                                style: const TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: PP.bone)),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ),
             const SizedBox(height: 18),
-            Text('Ficus lyrata',
-                style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.25,
-                    color: PP.inkA(0.45))),
+            if (r.scientificName.isNotEmpty)
+              Text(r.scientificName,
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.25,
+                      color: PP.inkA(0.45))),
             const SizedBox(height: 2),
-            Text('Fiddle Leaf Fig',
+            Text(r.commonName,
                 style: TextStyle(
                     fontSize: 30,
                     height: 1.05,
                     fontWeight: FontWeight.w600,
                     letterSpacing: PP.track(30, -0.035))),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: const [
-                Tag('Medium care'),
-                Tag('Bright indirect'),
-                Tag('Water every 7d'),
-              ],
-            ),
             const SizedBox(height: 16),
             SurfaceCard(
               radius: 28,
@@ -161,21 +202,21 @@ class _ScanResultScreenState extends State<ScanResultScreen>
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      for (final r in _rooms)
+                      for (final room in _rooms)
                         GestureDetector(
-                          onTap: () => setState(() => _room = r),
+                          onTap: () => setState(() => _room = room),
                           child: Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 15, vertical: 10),
                             decoration: BoxDecoration(
-                              color: _room == r ? PP.ink : PP.field,
+                              color: _room == room ? PP.ink : PP.field,
                               borderRadius: BorderRadius.circular(20),
                             ),
-                            child: Text(r,
+                            child: Text(room,
                                 style: TextStyle(
                                     fontSize: 12.5,
                                     fontWeight: FontWeight.w600,
-                                    color: _room == r
+                                    color: _room == room
                                         ? PP.bone
                                         : PP.inkA(0.6))),
                           ),
@@ -209,8 +250,8 @@ class _ScanResultScreenState extends State<ScanResultScreen>
                   const SizedBox(height: 12),
                   for (final line in const [
                     '· Care plan with light, soil and temperature',
-                    '· Watering reminder every 7 days at 8:00',
-                    '· Monthly fertilizing reminder',
+                    '· Watering and fertilizing reminders',
+                    '· A journal timeline for this plant',
                   ])
                     Padding(
                       padding: const EdgeInsets.only(bottom: 7),
@@ -225,19 +266,20 @@ class _ScanResultScreenState extends State<ScanResultScreen>
             ),
             const SizedBox(height: 18),
             PrimaryButton(
-              label: 'Add to my plants',
-              onPressed: () => Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => const RootShell(initialIndex: 1)),
-                (_) => false,
-              ),
+              label: _saving ? 'Saving…' : 'Add to my plants',
+              background: _saving ? PP.inkA(0.4) : PP.ink,
+              onPressed: _saving ? null : _save,
             ),
             const SizedBox(height: 12),
             Center(
-              child: Text('Not this plant? See other matches',
-                  style: TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w600,
-                      color: PP.inkA(0.55))),
+              child: GestureDetector(
+                onTap: () => Navigator.of(context).maybePop(),
+                child: Text('Not this plant? Scan again',
+                    style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w600,
+                        color: PP.inkA(0.55))),
+              ),
             ),
           ],
         ),

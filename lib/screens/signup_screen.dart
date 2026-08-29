@@ -1,15 +1,73 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../api/api_exception.dart';
+import '../state/auth_scope.dart';
 import '../theme/pp_theme.dart';
 import '../widgets/pp_common.dart';
-import 'root_shell.dart';
 
-class SignupScreen extends StatelessWidget {
+class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
 
   @override
+  State<SignupScreen> createState() => _SignupScreenState();
+}
+
+class _SignupScreenState extends State<SignupScreen> {
+  final _name = TextEditingController();
+  final _email = TextEditingController();
+  final _password = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _email.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  int get _strength {
+    final p = _password.text;
+    var s = 0;
+    if (p.length >= 8) s++;
+    if (p.contains(RegExp(r'[0-9]'))) s++;
+    if (p.contains(RegExp(r'[A-Z]')) || p.contains(RegExp(r'[^A-Za-z0-9]'))) s++;
+    return s;
+  }
+
+  Future<void> _submit() async {
+    if (_busy) return;
+    final name = _name.text.trim();
+    final email = _email.text.trim();
+    final password = _password.text;
+    if (name.isEmpty || email.isEmpty || password.length < 6) {
+      setState(() => _error =
+          'Enter your name, a valid email, and a password of at least 6 characters.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await AuthScope.of(context).register(name, email, password);
+      if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
+    } on ApiException catch (e) {
+      setState(() => _error = e.isConflict
+          ? 'An account with that email already exists.'
+          : e.message);
+    } catch (_) {
+      setState(() => _error = 'Could not create your account. Try again.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final strengthLabel = ['Weak', 'Weak', 'Good', 'Strong'][_strength];
     return Screen(
       child: SafeArea(
         child: SingleChildScrollView(
@@ -67,23 +125,38 @@ class SignupScreen extends StatelessWidget {
                   style: TextStyle(
                       fontSize: 14.5, height: 1.5, color: PP.inkA(0.55))),
               const SizedBox(height: 26),
-              const _LabeledField(label: 'Full name', value: 'Abel Tesfaye'),
+              _LabeledField(
+                  label: 'Full name',
+                  controller: _name,
+                  hint: 'Abel Tesfaye'),
               const SizedBox(height: 12),
-              const _LabeledField(label: 'Email', value: 'abel@pitrontech.et'),
+              _LabeledField(
+                  label: 'Email',
+                  controller: _email,
+                  hint: 'you@example.com',
+                  keyboardType: TextInputType.emailAddress),
               const SizedBox(height: 12),
-              const _LabeledField(
-                  label: 'Password', value: 'plantpal01', obscure: true),
+              _LabeledField(
+                label: 'Password',
+                controller: _password,
+                hint: 'At least 6 characters',
+                obscure: true,
+                onChanged: (_) => setState(() {}),
+              ),
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Expanded(child: _strengthBar(PP.forest)),
+                  Expanded(
+                      child: _strengthBar(_strength >= 1 ? PP.forest : PP.pale3)),
                   const SizedBox(width: 7),
-                  Expanded(child: _strengthBar(PP.forest)),
+                  Expanded(
+                      child: _strengthBar(_strength >= 2 ? PP.forest : PP.pale3)),
                   const SizedBox(width: 7),
-                  Expanded(child: _strengthBar(PP.pale3)),
+                  Expanded(
+                      child: _strengthBar(_strength >= 3 ? PP.forest : PP.pale3)),
                   const SizedBox(width: 8),
-                  const Text('Good',
-                      style: TextStyle(
+                  Text(strengthLabel,
+                      style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                           color: PP.forest)),
@@ -114,14 +187,40 @@ class SignupScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(height: 30),
+              if (_error != null) ...[
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                  decoration: BoxDecoration(
+                    color: PP.amberBg,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(LucideIcons.triangleAlert,
+                          size: 18, color: PP.amberFg),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(_error!,
+                            style: const TextStyle(
+                                fontSize: 13,
+                                height: 1.4,
+                                fontWeight: FontWeight.w600,
+                                color: PP.amberFg)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 24),
               PrimaryButton(
-                label: 'Continue',
+                label: _busy ? 'Creating account…' : 'Continue',
+                background: _busy ? PP.inkA(0.4) : PP.ink,
                 fontSize: 16,
                 padding: 20,
-                onPressed: () => Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (_) => const RootShell()),
-                    (_) => false),
+                onPressed: _busy ? null : _submit,
               ),
               const SizedBox(height: 14),
               Center(
@@ -132,8 +231,7 @@ class SignupScreen extends StatelessWidget {
                         fontSize: 12, height: 1.5, color: PP.inkA(0.45)),
                     children: const [
                       TextSpan(
-                          text: 'Terms',
-                          style: TextStyle(color: PP.forest)),
+                          text: 'Terms', style: TextStyle(color: PP.forest)),
                       TextSpan(text: ' and '),
                       TextSpan(
                           text: 'Privacy Policy',
@@ -161,13 +259,19 @@ class SignupScreen extends StatelessWidget {
 class _LabeledField extends StatelessWidget {
   const _LabeledField({
     required this.label,
-    required this.value,
+    required this.controller,
+    this.hint = '',
     this.obscure = false,
+    this.keyboardType,
+    this.onChanged,
   });
 
   final String label;
-  final String value;
+  final TextEditingController controller;
+  final String hint;
   final bool obscure;
+  final TextInputType? keyboardType;
+  final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -182,17 +286,19 @@ class _LabeledField extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                   color: PP.inkA(0.5))),
         ),
-        TextFormField(
-          initialValue: value,
+        TextField(
+          controller: controller,
           obscureText: obscure,
-          style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w500,
-              letterSpacing: obscure ? 3 : 0),
+          keyboardType: keyboardType,
+          onChanged: onChanged,
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
           decoration: InputDecoration(
             filled: true,
             fillColor: Colors.white,
             isCollapsed: true,
+            hintText: hint,
+            hintStyle:
+                TextStyle(color: PP.inkA(0.4), fontWeight: FontWeight.w500),
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 20, vertical: 17),
             border: OutlineInputBorder(

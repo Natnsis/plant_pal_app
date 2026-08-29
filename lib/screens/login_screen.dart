@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../api/api_exception.dart';
+import '../state/auth_scope.dart';
 import '../theme/pp_theme.dart';
 import '../widgets/pp_common.dart';
-import 'root_shell.dart';
 import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -15,8 +16,10 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   bool _remember = true;
+  bool _busy = false;
+  String? _error;
   final _email = TextEditingController();
-  final _password = TextEditingController(text: 'plantpal');
+  final _password = TextEditingController();
 
   @override
   void dispose() {
@@ -25,8 +28,32 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _enter() => Navigator.of(context)
-      .pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const RootShell()), (_) => false);
+  Future<void> _enter() async {
+    if (_busy) return;
+    final email = _email.text.trim();
+    final password = _password.text;
+    if (email.isEmpty || password.isEmpty) {
+      setState(() => _error = 'Enter your email and password.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await AuthScope.of(context).login(email, password);
+      if (mounted) {
+        // AuthGate now renders RootShell underneath — drop the auth stack.
+        Navigator.of(context).popUntil((r) => r.isFirst);
+      }
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+    } catch (_) {
+      setState(() => _error = 'Could not sign in. Try again.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -133,13 +160,17 @@ class _LoginScreenState extends State<LoginScreen> {
                               decorationColor: PP.forest)),
                     ],
                   ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 18),
+                    _ErrorBanner(_error!),
+                  ],
                   const SizedBox(height: 26),
                   PrimaryButton(
-                    label: 'Log in',
-                    background: PP.forest,
+                    label: _busy ? 'Signing in…' : 'Log in',
+                    background: _busy ? PP.inkA(0.4) : PP.forest,
                     fontSize: 16,
                     padding: 20,
-                    onPressed: _enter,
+                    onPressed: _busy ? null : _enter,
                   ),
                   const SizedBox(height: 24),
                   Row(
@@ -245,6 +276,37 @@ class _Field extends StatelessWidget {
             decoration: BoxDecoration(
                 color: PP.pale1, borderRadius: BorderRadius.circular(20)),
             child: Icon(trailingIcon, size: 18, color: PP.forest),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorBanner extends StatelessWidget {
+  const _ErrorBanner(this.message);
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      decoration: BoxDecoration(
+        color: PP.amberBg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          const Icon(LucideIcons.triangleAlert, size: 18, color: PP.amberFg),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(message,
+                style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.4,
+                    fontWeight: FontWeight.w600,
+                    color: PP.amberFg)),
           ),
         ],
       ),

@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../api/api_exception.dart';
+import '../api/plantpal_api.dart';
 import '../theme/pp_theme.dart';
+import '../widgets/async_view.dart';
 import 'diagnosis_screen.dart';
 import 'scan_result_screen.dart';
 
@@ -19,10 +23,49 @@ class _ScanScreenState extends State<ScanScreen>
     duration: const Duration(milliseconds: 2400),
   )..repeat(reverse: true);
 
+  final _api = PlantPalApi.instance;
+  bool _diagnoseMode = false;
+  bool _busy = false;
+
   @override
   void dispose() {
     _c.dispose();
     super.dispose();
+  }
+
+  /// No camera/gallery plugin resolves on this Flutter SDK, so the capture
+  /// uses a bundled sample photo — the request path to `/scan` and
+  /// `/diagnosis` is the real one.
+  Future<void> _capture() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final data = await rootBundle.load('assets/img/sample_plant.jpg');
+      final bytes = data.buffer.asUint8List();
+      if (_diagnoseMode) {
+        final session = await _api.startDiagnosis(bytes);
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(MaterialPageRoute(
+            builder: (_) => DiagnosisScreen(sessionId: session.id)));
+      } else {
+        final result = await _api.scan(bytes);
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(MaterialPageRoute(
+            builder: (_) => ScanResultScreen(result: result)));
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        showPPSnack(
+          context,
+          e.isServer
+              ? 'The identifier could not read that photo. Try a clear, well-lit shot of the whole plant.'
+              : e.message,
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
@@ -89,13 +132,15 @@ class _ScanScreenState extends State<ScanScreen>
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          _modePill('Identify', active: true),
+                          GestureDetector(
+                            onTap: () =>
+                                setState(() => _diagnoseMode = false),
+                            child: _modePill('Identify', active: !_diagnoseMode),
+                          ),
                           const SizedBox(width: 9),
                           GestureDetector(
-                            onTap: () => Navigator.of(context).pushReplacement(
-                                MaterialPageRoute(
-                                    builder: (_) => const DiagnosisScreen())),
-                            child: _modePill('Diagnose', active: false),
+                            onTap: () => setState(() => _diagnoseMode = true),
+                            child: _modePill('Diagnose', active: _diagnoseMode),
                           ),
                         ],
                       ),
@@ -220,8 +265,7 @@ class _ScanScreenState extends State<ScanScreen>
 
   Widget _shutter() {
     return GestureDetector(
-      onTap: () => Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const ScanResultScreen())),
+      onTap: _busy ? null : _capture,
       child: Container(
         width: 86,
         height: 86,
@@ -229,15 +273,26 @@ class _ScanScreenState extends State<ScanScreen>
           color: PP.bone,
           shape: BoxShape.circle,
           boxShadow: [
-            BoxShadow(color: PP.bone.withValues(alpha: 0.28), blurRadius: 0, spreadRadius: 6),
+            BoxShadow(
+                color: PP.bone.withValues(alpha: 0.28),
+                blurRadius: 0,
+                spreadRadius: 6),
           ],
         ),
         child: Center(
           child: Container(
             width: 66,
             height: 66,
-            decoration: const BoxDecoration(color: PP.lime, shape: BoxShape.circle),
-            child: const Icon(LucideIcons.scan, size: 28, color: PP.ink),
+            decoration:
+                const BoxDecoration(color: PP.lime, shape: BoxShape.circle),
+            child: _busy
+                ? const Padding(
+                    padding: EdgeInsets.all(20),
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2.6, color: PP.ink),
+                  )
+                : Icon(_diagnoseMode ? LucideIcons.stethoscope : LucideIcons.scan,
+                    size: 28, color: PP.ink),
           ),
         ),
       ),

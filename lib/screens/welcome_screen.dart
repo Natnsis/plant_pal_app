@@ -4,7 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../theme/pp_theme.dart';
 import '../widgets/pp_common.dart';
 import 'login_screen.dart';
-import 'root_shell.dart';
+import 'signup_screen.dart';
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
@@ -107,14 +107,14 @@ class WelcomeScreen extends StatelessWidget {
                   Expanded(
                     child: PrimaryButton(
                       label: 'Get started',
-                      onPressed: () => Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(builder: (_) => const RootShell())),
+                      onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const SignupScreen())),
                     ),
                   ),
                   const SizedBox(width: 10),
                   GestureDetector(
-                    onTap: () => Navigator.of(context).pushReplacement(
-                        MaterialPageRoute(builder: (_) => const RootShell())),
+                    onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const SignupScreen())),
                     child: Container(
                       width: 62,
                       height: 60,

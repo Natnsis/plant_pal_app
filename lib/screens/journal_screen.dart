@@ -1,110 +1,127 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../api/plantpal_api.dart';
+import '../models/models.dart';
 import '../theme/pp_theme.dart';
+import '../widgets/async_view.dart';
 import '../widgets/pp_common.dart';
 
-class JournalScreen extends StatelessWidget {
+class JournalScreen extends StatefulWidget {
   const JournalScreen({super.key});
+
+  @override
+  State<JournalScreen> createState() => _JournalScreenState();
+}
+
+class _JournalScreenState extends State<JournalScreen> {
+  final _api = PlantPalApi.instance;
+  String _filter = 'All entries';
+  static const _filters = ['All entries', 'Watering', 'Photos', 'Milestones'];
+
+  bool _match(JournalEntry e) => switch (_filter) {
+        'Watering' => e.type == 'water',
+        'Photos' => e.hasPhoto || e.imageUrl.isNotEmpty,
+        'Milestones' => e.isMilestone,
+        _ => true,
+      };
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       bottom: false,
-      child: Stack(
-        children: [
-          ListView(
-            padding: const EdgeInsets.fromLTRB(22, 20, 22, 150),
-            children: [
-              const DisplayTitle('Growth diary'),
-              const SizedBox(height: 8),
-              Text('48 entries · 6 plants',
-                  style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: PP.inkA(0.5))),
-              const SizedBox(height: 18),
-              SizedBox(
-                height: 42,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: EdgeInsets.zero,
-                  children: const [
-                    _JChip('All entries', selected: true),
-                    SizedBox(width: 9),
-                    _JChip('Watering'),
-                    SizedBox(width: 9),
-                    _JChip('Photos'),
-                    SizedBox(width: 9),
-                    _JChip('Milestones'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-              _milestoneCard(),
-              const SizedBox(height: 14),
-              _EntryCard(
-                tag: 'Watered',
-                tagBg: PP.pale2,
-                tagFg: PP.forest,
-                date: 'Aug 26',
-                title: 'Peace Lily · 250 ml',
-                body: 'Soil was bone dry, leaves perked up by evening.',
-                icon: LucideIcons.sprout,
-                iconBgGradient: true,
-              ),
-              const SizedBox(height: 12),
-              _EntryCard(
-                tag: 'Note',
-                tagBg: PP.amberBg,
-                tagFg: PP.amberFg,
-                date: 'Aug 24',
-                title: 'Golden Pothos · leaf spots',
-                body: 'Opened a diagnosis session — watching for spread.',
-                icon: LucideIcons.droplet,
-              ),
-            ],
-          ),
-          Positioned(
-            right: 22,
-            bottom: 104,
-            child: GestureDetector(
-              onTap: () {},
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-                decoration: BoxDecoration(
-                  color: PP.ink,
-                  borderRadius: BorderRadius.circular(30),
-                  boxShadow: [
-                    BoxShadow(
-                      color: PP.inkA(0.28),
-                      blurRadius: 26,
-                      offset: const Offset(0, 12),
+      child: AsyncView<List<JournalEntry>>(
+        load: () => _api.journal(),
+        padding: const EdgeInsets.only(top: 120),
+        emptyWhen: (list) => list.isEmpty,
+        emptyLabel: 'No journal entries yet',
+        emptyIcon: LucideIcons.bookOpen,
+        builder: (context, all, reload) {
+          final entries = all.where(_match).toList();
+          JournalEntry? milestone;
+          for (final e in all) {
+            if (e.isMilestone) {
+              milestone = e;
+              break;
+            }
+          }
+          return RefreshIndicator(
+            color: PP.forest,
+            onRefresh: reload,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(22, 20, 22, 150),
+              children: [
+                const DisplayTitle('Growth diary'),
+                const SizedBox(height: 8),
+                Text('${all.length} entries',
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: PP.inkA(0.5))),
+                const SizedBox(height: 18),
+                SizedBox(
+                  height: 42,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: EdgeInsets.zero,
+                    itemCount: _filters.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 9),
+                    itemBuilder: (_, i) => GestureDetector(
+                      onTap: () => setState(() => _filter = _filters[i]),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 11),
+                        decoration: BoxDecoration(
+                          color: _filter == _filters[i]
+                              ? PP.ink
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(22),
+                        ),
+                        child: Text(_filters[i],
+                            style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: _filter == _filters[i]
+                                    ? PP.bone
+                                    : PP.inkA(0.6))),
+                      ),
                     ),
-                  ],
+                  ),
                 ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(LucideIcons.plus, size: 17, color: PP.lime),
-                    SizedBox(width: 9),
-                    Text('New entry',
+                if (milestone != null) ...[
+                  const SizedBox(height: 18),
+                  _milestoneCard(milestone),
+                ],
+                const SizedBox(height: 14),
+                if (entries.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 22),
+                    decoration: BoxDecoration(
+                      color: PP.card.withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Text('No entries in this filter.',
                         style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: PP.bone)),
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w500,
+                            color: PP.inkA(0.55))),
+                  )
+                else
+                  for (final e in entries) ...[
+                    _EntryCard(entry: e),
+                    const SizedBox(height: 12),
                   ],
-                ),
-              ),
+              ],
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 
-  Widget _milestoneCard() {
+  Widget _milestoneCard(JournalEntry e) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -123,7 +140,7 @@ class JournalScreen extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                       letterSpacing: 1.1,
                       color: PP.bone.withValues(alpha: 0.6))),
-              Text('Aug 21',
+              Text(_date(e.date),
                   style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -131,7 +148,7 @@ class JournalScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Text('Fiddle Leaf Fig passed 110 cm',
+          Text(e.note.isEmpty ? '${e.plantName} milestone' : e.note,
               style: TextStyle(
                   fontSize: 21,
                   fontWeight: FontWeight.w600,
@@ -147,65 +164,34 @@ class JournalScreen extends StatelessWidget {
             child: Icon(LucideIcons.sprout,
                 size: 56, color: PP.mint.withValues(alpha: 0.5)),
           ),
-          const SizedBox(height: 12),
-          Text(
-            'Third new leaf this season. Rotating the pot weekly is clearly working.',
-            style: TextStyle(
-                fontSize: 13.5,
-                height: 1.5,
-                color: PP.bone.withValues(alpha: 0.78)),
-          ),
         ],
       ),
     );
   }
-}
 
-class _JChip extends StatelessWidget {
-  const _JChip(this.label, {this.selected = false});
-  final String label;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-      decoration: BoxDecoration(
-        color: selected ? PP.ink : Colors.white,
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Text(label,
-          style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: selected ? PP.bone : PP.inkA(0.6))),
-    );
+  static String _date(DateTime? d) {
+    if (d == null) return '';
+    const m = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    return '${m[d.month - 1]} ${d.day}';
   }
 }
 
 class _EntryCard extends StatelessWidget {
-  const _EntryCard({
-    required this.tag,
-    required this.tagBg,
-    required this.tagFg,
-    required this.date,
-    required this.title,
-    required this.body,
-    required this.icon,
-    this.iconBgGradient = false,
-  });
-
-  final String tag;
-  final Color tagBg;
-  final Color tagFg;
-  final String date;
-  final String title;
-  final String body;
-  final IconData icon;
-  final bool iconBgGradient;
+  const _EntryCard({required this.entry});
+  final JournalEntry entry;
 
   @override
   Widget build(BuildContext context) {
+    final (tagBg, tagFg) = switch (entry.type) {
+      'water' => (PP.pale2, PP.forest),
+      'fertilize' => (PP.pale2, PP.forest),
+      'note' => (PP.amberBg, PP.amberFg),
+      'growth' => (PP.forest, PP.bone),
+      _ => (PP.pale1, PP.forest),
+    };
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -219,13 +205,15 @@ class _EntryCard extends StatelessWidget {
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              gradient: iconBgGradient ? PP.plantImage : null,
-              color: iconBgGradient ? null : PP.pale1,
+              gradient: entry.hasPhoto ? PP.plantImage : null,
+              color: entry.hasPhoto ? null : PP.pale1,
               borderRadius: BorderRadius.circular(20),
             ),
-            child: Icon(icon,
-                size: iconBgGradient ? 30 : 24,
-                color: PP.forest.withValues(alpha: iconBgGradient ? 0.45 : 1)),
+            child: Icon(
+              entry.hasPhoto ? LucideIcons.image : _iconFor(entry.type),
+              size: entry.hasPhoto ? 26 : 22,
+              color: PP.forest.withValues(alpha: entry.hasPhoto ? 0.5 : 1),
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -241,7 +229,7 @@ class _EntryCard extends StatelessWidget {
                         color: tagBg,
                         borderRadius: BorderRadius.circular(16),
                       ),
-                      child: Text(tag.toUpperCase(),
+                      child: Text(entry.type.toUpperCase(),
                           style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
@@ -249,7 +237,7 @@ class _EntryCard extends StatelessWidget {
                               color: tagFg)),
                     ),
                     const SizedBox(width: 8),
-                    Text(date,
+                    Text(_JournalScreenState._date(entry.date),
                         style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
@@ -257,17 +245,22 @@ class _EntryCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 7),
-                Text(title,
+                Text(
+                    entry.plantName.isEmpty
+                        ? 'Journal entry'
+                        : entry.plantName,
                     style: TextStyle(
                         fontSize: 14.5,
                         fontWeight: FontWeight.w600,
                         letterSpacing: PP.track(14.5, -0.01))),
-                const SizedBox(height: 2),
-                Text(body,
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: PP.inkA(0.5))),
+                if (entry.note.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(entry.note,
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: PP.inkA(0.5))),
+                ],
               ],
             ),
           ),
@@ -275,4 +268,13 @@ class _EntryCard extends StatelessWidget {
       ),
     );
   }
+
+  IconData _iconFor(String type) => switch (type) {
+        'water' => LucideIcons.droplet,
+        'fertilize' => LucideIcons.sprout,
+        'prune' => LucideIcons.scissors,
+        'repot' => LucideIcons.house,
+        'growth' => LucideIcons.trendingUp,
+        _ => LucideIcons.pencil,
+      };
 }
