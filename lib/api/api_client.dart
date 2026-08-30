@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -126,15 +127,31 @@ class ApiClient {
     return _decode<T>(res);
   }
 
-  Future<http.Response> _guard(Future<http.Response> Function() run) async {
-    try {
-      return await run();
-    } on TimeoutException {
+  /// Turns any transport failure into a generic, user-safe message. Never
+  /// surfaces the raw exception — a `SocketException` / `http.ClientException`
+  /// includes the backend URL, and that shouldn't be shown to users.
+  Never _throwTransport(Object e) {
+    if (e is TimeoutException) {
       throw ApiException(
         'The server took too long to respond. It may be waking up — try again.',
       );
+    }
+    if (e is SocketException) {
+      throw ApiException(
+        'No connection. Check your internet and try again.',
+      );
+    }
+    if (e is HandshakeException || e is TlsException) {
+      throw ApiException('Secure connection failed. Try again.');
+    }
+    throw ApiException('Something went wrong. Please try again.');
+  }
+
+  Future<http.Response> _guard(Future<http.Response> Function() run) async {
+    try {
+      return await run();
     } catch (e) {
-      throw ApiException('Network error: $e');
+      _throwTransport(e);
     }
   }
 
@@ -152,23 +169,15 @@ class ApiClient {
           continue;
         }
         return res;
-      } on TimeoutException {
-        if (attempt == 0) {
-          await Future.delayed(const Duration(milliseconds: 800));
-          continue;
-        }
-        throw ApiException(
-          'The server took too long to respond. It may be waking up — try again.',
-        );
       } catch (e) {
         if (attempt == 0) {
           await Future.delayed(const Duration(milliseconds: 800));
           continue;
         }
-        throw ApiException('Network error: $e');
+        _throwTransport(e);
       }
     }
-    // Unreachable, but keeps the analyzer happy.
+    // Unreachable — the loop either returns or throws on the last attempt.
     return run();
   }
 

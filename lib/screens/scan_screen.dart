@@ -77,6 +77,12 @@ class _ScanScreenState extends State<ScanScreen>
 
       final result = await _api.scan(bytes);
       if (!mounted) return;
+      if (result.notAPlant) {
+        setState(() => _retakeHint =
+            "That doesn't look like a plant. Point the camera at a plant and "
+            'fill the frame with it.');
+        return;
+      }
       if (result.retake) {
         setState(() => _retakeHint =
             "Couldn't confidently identify that${result.confidencePercent > 0 ? ' (${result.confidencePercent}% match)' : ''}. "

@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required for the API, weather fallback, image loading, Google
+         Sign-In. Flutter only auto-adds this to debug/profile builds, so
+         declare it here for release too. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <!-- Android 13+ notification permission for the hand-rolled reminder
          notifications (MainActivity.kt / lib/api/notif_channel.dart). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

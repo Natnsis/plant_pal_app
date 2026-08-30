@@ -1,24 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import '../api/api_client.dart';
 import '../theme/pp_theme.dart';
 import '../widgets/pp_common.dart';
 import '../widgets/simple_markdown.dart';
 
 class PrivacyScreen extends StatelessWidget {
   const PrivacyScreen({super.key});
-
-  /// Show the scheme + host head and tail, mask the middle — enough to
-  /// reassure "one server, over HTTPS" without publishing the full origin.
-  static String _maskUrl(String url) {
-    final noScheme = url.replaceFirst(RegExp(r'^https?://'), '');
-    final scheme = url.startsWith('https') ? 'https://' : 'http://';
-    if (noScheme.length <= 10) return '$scheme$noScheme';
-    final head = noScheme.substring(0, 6);
-    final tail = noScheme.substring(noScheme.length - 4);
-    return '$scheme$head${'•' * 8}$tail';
-  }
 
   static const _doc = '''
 # Privacy & data
@@ -107,7 +95,9 @@ device, not in shared storage.
                             size: 18, color: PP.forest),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: Text('Single API endpoint\n${_maskUrl(kPlantPalBaseUrl)}',
+                          child: Text(
+                              'All traffic goes to one server over an encrypted '
+                              '(HTTPS) connection — nowhere else.',
                               style: const TextStyle(
                                   fontSize: 12,
                                   height: 1.5,

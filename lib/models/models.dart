@@ -694,10 +694,17 @@ class ScanResult {
   int get confidencePercent =>
       (confidence <= 1 ? confidence * 100 : confidence).round();
 
+  /// The photo wasn't a plant at all (the model was told to return
+  /// "NOT_A_PLANT" for faces / objects / scenery).
+  bool get notAPlant =>
+      asBool(pick(raw, ['not_a_plant', 'notAPlant'])) ||
+      commonName.toUpperCase().replaceAll(' ', '_') == 'NOT_A_PLANT';
+
   /// The API sets `retake: true` on a low-confidence identification (score
-  /// below 0.7). Also treat a plainly-unidentified result as needing a
-  /// retake.
+  /// below 0.7). Also treat a non-plant or plainly-unidentified result as
+  /// needing a retake.
   bool get retake =>
+      notAPlant ||
       asBool(pick(raw, ['retake', 'Retake'])) ||
       commonName == 'Identified plant' ||
       confidencePercent < 55;

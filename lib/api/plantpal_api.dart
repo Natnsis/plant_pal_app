@@ -86,6 +86,7 @@ class PlantPalApi {
           {String filename = 'avatar.jpg'}) async =>
       UserProfile.fromJson(await _c.uploadMultipart<Map<String, dynamic>>(
         '/users/me/avatar',
+        method: 'PUT', // route is PUT-only; a POST 404s on gorilla/mux
         imageBytes: bytes,
         filename: filename,
       ));
