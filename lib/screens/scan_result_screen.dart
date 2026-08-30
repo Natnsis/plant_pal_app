@@ -22,8 +22,10 @@ class _ScanResultScreenState extends State<ScanResultScreen>
     with SingleTickerProviderStateMixin {
   final _api = PlantPalApi.instance;
   final _nickname = TextEditingController();
-  String _room = 'Living Room';
-  static const _rooms = ['Living Room', 'Bedroom', 'Kitchen', 'Balcony', 'Office'];
+  final _room = TextEditingController();
+  // Suggestions are the rooms this user already uses (from their plants),
+  // so the list is theirs, not an arbitrary hard-coded set.
+  List<String> _roomSuggestions = const ['Living room', 'Bedroom', 'Kitchen'];
   bool _saving = false;
 
   late final AnimationController _glow = AnimationController(
@@ -37,11 +39,26 @@ class _ScanResultScreenState extends State<ScanResultScreen>
     _nickname.text = widget.result.commonName == 'Identified plant'
         ? ''
         : widget.result.commonName;
+    _loadRooms();
+  }
+
+  Future<void> _loadRooms() async {
+    try {
+      final plants = await _api.plants();
+      final rooms = <String>{
+        for (final p in plants)
+          if (p.location.trim().isNotEmpty) p.location.trim(),
+      }.toList();
+      if (mounted && rooms.isNotEmpty) {
+        setState(() => _roomSuggestions = rooms);
+      }
+    } catch (_) {}
   }
 
   @override
   void dispose() {
     _nickname.dispose();
+    _room.dispose();
     _glow.dispose();
     super.dispose();
   }
@@ -54,15 +71,14 @@ class _ScanResultScreenState extends State<ScanResultScreen>
           error: true);
       return;
     }
+    final nickname = _nickname.text.trim().isEmpty
+        ? (r.commonName == 'Identified plant' ? 'My plant' : r.commonName)
+        : _nickname.text.trim();
+    final room = _room.text.trim().isEmpty ? 'Home' : _room.text.trim();
+
     setState(() => _saving = true);
     try {
-      await _api.confirmScan(
-        r.id,
-        nickname: _nickname.text.trim().isEmpty
-            ? r.commonName
-            : _nickname.text.trim(),
-        location: _room,
-      );
+      await _api.confirmScan(r.id, nickname: nickname, location: room);
       if (!mounted) return;
       showPPSnack(context, 'Added to your plants');
       Navigator.of(context).pushAndRemoveUntil(
@@ -71,7 +87,14 @@ class _ScanResultScreenState extends State<ScanResultScreen>
         (_) => false,
       );
     } on ApiException catch (e) {
-      if (mounted) showPPSnack(context, e.message, error: true);
+      if (mounted) {
+        showPPSnack(
+            context,
+            e.isServer
+                ? "Couldn't set this plant up. Please try again in a moment."
+                : e.message,
+            error: true);
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -112,6 +135,7 @@ class _ScanResultScreenState extends State<ScanResultScreen>
               child: Stack(
                 children: [
                   PlantImage(
+                      imageUrl: r.imageUrl,
                       height: 230,
                       width: double.infinity,
                       radius: 32,
@@ -198,31 +222,55 @@ class _ScanResultScreenState extends State<ScanResultScreen>
                     ),
                   ),
                   const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final room in _rooms)
-                        GestureDetector(
-                          onTap: () => setState(() => _room = room),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 15, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: _room == room ? PP.ink : PP.field,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(room,
-                                style: TextStyle(
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w600,
-                                    color: _room == room
-                                        ? PP.bone
-                                        : PP.inkA(0.6))),
-                          ),
-                        ),
-                    ],
+                  TextField(
+                    controller: _room,
+                    style: const TextStyle(
+                        fontSize: 14.5, fontWeight: FontWeight.w500),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: PP.field,
+                      hintText: 'Room / spot (e.g. Living room)',
+                      isCollapsed: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 15),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(20),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
                   ),
+                  if (_roomSuggestions.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final room in _roomSuggestions)
+                          GestureDetector(
+                            onTap: () => setState(() {
+                              _room.text = room;
+                              _room.selection = TextSelection.collapsed(
+                                  offset: room.length);
+                            }),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 15, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: _room.text == room ? PP.ink : PP.field,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(room,
+                                  style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: _room.text == room
+                                          ? PP.bone
+                                          : PP.inkA(0.6))),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),

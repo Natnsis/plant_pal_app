@@ -47,3 +47,9 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // FileProvider + ExifInterface for the hand-rolled camera bridge in
+    // MainActivity.kt (no image_picker plugin on this SDK).
+    implementation("androidx.core:core-ktx:1.13.1")
+}

@@ -32,9 +32,20 @@ class AsyncView<T> extends StatefulWidget {
 class _AsyncViewState<T> extends State<AsyncView<T>> {
   late Future<T> _future = widget.load();
 
+  /// The last value that loaded successfully. Kept so a *reload* (pull to
+  /// refresh, or an action asking for fresh data) can keep showing the
+  /// current content instead of blanking the whole screen back to a spinner.
+  T? _lastData;
+
   Future<void> _reload() async {
-    setState(() => _future = widget.load());
-    await _future.catchError((_) => null as T);
+    setState(() {
+      _future = widget.load();
+    });
+    try {
+      await _future;
+    } catch (_) {
+      // Surfaced by the FutureBuilder below; nothing to do here.
+    }
   }
 
   @override
@@ -43,24 +54,37 @@ class _AsyncViewState<T> extends State<AsyncView<T>> {
       future: _future,
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
+          // Only blank to a spinner on the very first load. Any later reload
+          // keeps the last good content on screen (with pull-to-refresh's
+          // own indicator doing the "loading" signalling).
+          if (_lastData != null) {
+            return widget.builder(context, _lastData as T, _reload);
+          }
           return Padding(
             padding: widget.padding,
             child: const Center(
               child: SizedBox(
                 width: 26,
                 height: 26,
-                child: CircularProgressIndicator(strokeWidth: 2.4, color: PP.forest),
+                child: CircularProgressIndicator(
+                    strokeWidth: 2.4, color: PP.forest),
               ),
             ),
           );
         }
         if (snap.hasError) {
+          if (_lastData != null) {
+            // A reload failed — keep showing what we had rather than
+            // replacing the screen with an error block.
+            return widget.builder(context, _lastData as T, _reload);
+          }
           return Padding(
             padding: widget.padding,
             child: _ErrorBlock(error: snap.error!, onRetry: _reload),
           );
         }
         final data = snap.data as T;
+        _lastData = data;
         if (widget.emptyWhen?.call(data) ?? false) {
           return Padding(
             padding: widget.padding,

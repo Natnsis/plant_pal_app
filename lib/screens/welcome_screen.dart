@@ -27,18 +27,48 @@ class WelcomeScreen extends StatelessWidget {
               Expanded(
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(28),
+                  clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(34),
-                    gradient: const LinearGradient(
-                      begin: Alignment(-0.5, -1),
-                      end: Alignment(0.5, 1),
-                      colors: [PP.forest, PP.forestMid, PP.forestLight],
-                      stops: [0.0, 0.58, 1.0],
-                    ),
+                    color: PP.forest,
                   ),
                   child: Stack(
                     children: [
+                      Positioned.fill(
+                        child: Image.asset(
+                          'assets/img/onboarding.jpg',
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, _, _) => const DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment(-0.5, -1),
+                                end: Alignment(0.5, 1),
+                                colors: [
+                                  PP.forest,
+                                  PP.forestMid,
+                                  PP.forestLight
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const Positioned.fill(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Color(0x3316180F),
+                                Color(0x00000000),
+                                Color(0xCC16180F),
+                              ],
+                              stops: [0.0, 0.45, 1.0],
+                            ),
+                          ),
+                        ),
+                      ),
                       Positioned(
                         top: -120,
                         right: -140,
@@ -49,7 +79,7 @@ class WelcomeScreen extends StatelessWidget {
                             shape: BoxShape.circle,
                             gradient: RadialGradient(
                               colors: [
-                                PP.lime.withValues(alpha: 0.35),
+                                PP.lime.withValues(alpha: 0.28),
                                 PP.lime.withValues(alpha: 0.0),
                               ],
                               stops: const [0.0, 0.62],
@@ -57,45 +87,46 @@ class WelcomeScreen extends StatelessWidget {
                           ),
                         ),
                       ),
-                      Center(
-                        child: Icon(LucideIcons.sprout,
-                            size: 230, color: PP.mint.withValues(alpha: 0.5)),
-                      ),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 13, vertical: 7),
-                            decoration: BoxDecoration(
-                              color: PP.bone.withValues(alpha: 0.16),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Text('Powered by plant AI',
+                      Positioned.fill(
+                        child: Padding(
+                          padding: const EdgeInsets.all(28),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 13, vertical: 7),
+                                decoration: BoxDecoration(
+                                  color: PP.bone.withValues(alpha: 0.16),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: const Text('Powered by plant AI',
+                                    style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 0.5,
+                                        color: PP.bone)),
+                              ),
+                              const SizedBox(height: 16),
+                              Text('Know every\nleaf you own.',
+                                  style: TextStyle(
+                                      fontSize: 40,
+                                      height: 1.02,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: PP.track(40),
+                                      color: PP.bone)),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Snap a photo to identify a plant, get a care plan, and catch disease early.',
                                 style: TextStyle(
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 0.5,
-                                    color: PP.bone)),
+                                    fontSize: 14.5,
+                                    height: 1.5,
+                                    color: PP.bone.withValues(alpha: 0.72)),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 16),
-                          Text('Know every\nleaf you own.',
-                              style: TextStyle(
-                                  fontSize: 40,
-                                  height: 1.02,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: PP.track(40),
-                                  color: PP.bone)),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Snap a photo to identify a plant, get a care plan, and catch disease early.',
-                            style: TextStyle(
-                                fontSize: 14.5,
-                                height: 1.5,
-                                color: PP.bone.withValues(alpha: 0.72)),
-                          ),
-                        ],
+                        ),
                       ),
                     ],
                   ),

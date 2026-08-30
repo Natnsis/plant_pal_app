@@ -14,6 +14,8 @@ class ApiException implements Exception {
   bool get isUnauthorized => statusCode == 401;
   bool get isConflict => statusCode == 409;
   bool get isNotFound => statusCode == 404;
+  bool get isRateLimited => statusCode == 429;
+  bool get isBadRequest => statusCode == 400;
   bool get isServer => statusCode >= 500;
 
   factory ApiException.fromResponse(int status, String rawBody) {

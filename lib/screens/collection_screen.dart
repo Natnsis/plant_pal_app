@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../api/api_exception.dart';
 import '../api/plantpal_api.dart';
 import '../models/models.dart';
 import '../theme/pp_theme.dart';
@@ -8,6 +9,7 @@ import '../widgets/async_view.dart';
 import '../widgets/pp_common.dart';
 import 'plant_detail_screen.dart';
 import 'scan_screen.dart';
+import 'search_screen.dart';
 
 class CollectionScreen extends StatefulWidget {
   const CollectionScreen({super.key});
@@ -48,7 +50,10 @@ class _CollectionScreenState extends State<CollectionScreen> {
                   children: [
                     const Expanded(
                         child: DisplayTitle('Your plant\ncollection')),
-                    SquircleIconButton(icon: LucideIcons.search, onTap: () {}),
+                    SquircleIconButton(
+                        icon: LucideIcons.search,
+                        onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => const SearchScreen()))),
                   ],
                 ),
                 const SizedBox(height: 20),
@@ -101,12 +106,16 @@ class _CollectionScreenState extends State<CollectionScreen> {
                     crossAxisCount: 2,
                     mainAxisSpacing: 12,
                     crossAxisSpacing: 12,
-                    childAspectRatio: 0.72,
+                    childAspectRatio: 0.66,
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     padding: EdgeInsets.zero,
                     children: [
-                      for (final p in visible) _PlantGridCard(plant: p),
+                      for (final p in visible)
+                        _PlantGridCard(
+                          plant: p,
+                          onLongPress: () => _confirmDelete(context, p, reload),
+                        ),
                     ],
                   ),
               ],
@@ -115,6 +124,55 @@ class _CollectionScreenState extends State<CollectionScreen> {
         },
       ),
     );
+  }
+
+  Future<void> _confirmDelete(
+      BuildContext context, Plant p, Future<void> Function() reload) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: PP.bone,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
+        title: Row(
+          children: [
+            const Text('🥀', style: TextStyle(fontSize: 22)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text('Remove ${p.displayName}?',
+                  style: const TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+        content: Text(
+          "${p.displayName} leaves your garden for good — care plan, reminders, "
+          "growth history and every logged bit of care go with it. No undo.",
+          style: TextStyle(fontSize: 13.5, height: 1.5, color: PP.inkA(0.65)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('Keep it',
+                style:
+                    TextStyle(fontWeight: FontWeight.w700, color: PP.forest)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete',
+                style:
+                    TextStyle(fontWeight: FontWeight.w700, color: PP.danger)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await _api.deletePlant(p.id);
+      if (context.mounted) showPPSnack(context, '${p.displayName} removed');
+      await reload();
+    } on ApiException catch (e) {
+      if (context.mounted) showPPSnack(context, e.message, error: true);
+    }
   }
 
   Widget _emptyState(BuildContext context) {
@@ -175,8 +233,9 @@ class _CollectionScreenState extends State<CollectionScreen> {
 }
 
 class _PlantGridCard extends StatelessWidget {
-  const _PlantGridCard({required this.plant});
+  const _PlantGridCard({required this.plant, this.onLongPress});
   final Plant plant;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -185,6 +244,7 @@ class _PlantGridCard extends StatelessWidget {
     return GestureDetector(
       onTap: () => Navigator.of(context).push(MaterialPageRoute(
           builder: (_) => PlantDetailScreen(plantId: plant.id))),
+      onLongPress: onLongPress,
       child: Container(
         padding: const EdgeInsets.all(11),
         decoration: BoxDecoration(
@@ -192,17 +252,20 @@ class _PlantGridCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(28),
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SizedBox(
-              height: 112,
+              height: 108,
               child: Stack(
                 children: [
                   PlantImage(
-                      height: 112,
+                      imageUrl: plant.photoUrl,
+                      height: 108,
                       width: double.infinity,
+                      radius: 20,
                       dark: dark,
-                      iconSize: 58),
+                      iconSize: 56),
                   Positioned(
                     top: 8,
                     left: 8,

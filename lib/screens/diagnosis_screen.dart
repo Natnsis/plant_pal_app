@@ -13,11 +13,14 @@ class _Msg {
 }
 
 class DiagnosisScreen extends StatefulWidget {
-  const DiagnosisScreen({super.key, this.sessionId});
+  const DiagnosisScreen({super.key, this.sessionId, this.plantName});
 
-  /// When set, the screen drives a real `/diagnosis/{id}` session. When null
-  /// it shows a local sample conversation (opened from a plant, not a scan).
+  /// Drives a real `/diagnosis/{id}` session. Every entry point (scan, plant
+  /// detail) creates a session first and passes its id here.
   final String? sessionId;
+
+  /// Shown in the header so the user knows which plant is being discussed.
+  final String? plantName;
 
   @override
   State<DiagnosisScreen> createState() => _DiagnosisScreenState();
@@ -28,16 +31,11 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
   final _draft = TextEditingController();
   final _scroll = ScrollController();
   bool _sending = false;
+  bool _loading = false;
 
   bool get _live => widget.sessionId != null && widget.sessionId!.isNotEmpty;
 
-  final List<_Msg> _chat = [
-    const _Msg(
-      "I see brown crisp edges on the lower leaves and slight yellowing — that reads as underwatering plus low humidity, not a fungal issue.",
-      me: false,
-    ),
-    const _Msg("It sits near a west window. Should I move it?", me: true),
-  ];
+  final List<_Msg> _chat = [];
 
   @override
   void initState() {
@@ -53,24 +51,26 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
   }
 
   Future<void> _loadHistory() async {
+    setState(() => _loading = true);
     try {
       final session = await _api.diagnosisHistory(widget.sessionId!);
       if (!mounted) return;
       setState(() {
         _chat
           ..clear()
-          ..addAll(session.messages
-              .map((m) => _Msg(m.text, me: m.fromUser)));
+          ..addAll(session.messages.map((m) => _Msg(m.text, me: m.fromUser)));
       });
       _jump();
     } catch (_) {
       // Keep whatever the start response already showed.
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _send() async {
     final text = _draft.text.trim();
-    if (text.isEmpty || _sending) return;
+    if (text.isEmpty || _sending || !_live) return;
     setState(() {
       _chat.add(_Msg(text, me: true));
       _draft.clear();
@@ -78,23 +78,8 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
     });
     _jump();
 
-    if (!_live) {
-      await Future.delayed(const Duration(milliseconds: 700));
-      if (!mounted) return;
-      setState(() {
-        _chat.add(const _Msg(
-          "West light is fine — just pull it back about a metre so the midday sun isn't direct, and mist the leaves twice a week.",
-          me: false,
-        ));
-        _sending = false;
-      });
-      _jump();
-      return;
-    }
-
     try {
-      final session =
-          await _api.sendDiagnosisMessage(widget.sessionId!, text);
+      final session = await _api.sendDiagnosisMessage(widget.sessionId!, text);
       if (!mounted) return;
       setState(() {
         _chat
@@ -142,6 +127,8 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Plant doctor',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w600,
@@ -151,20 +138,29 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
                             Container(
                               width: 6,
                               height: 6,
-                              decoration: const BoxDecoration(
-                                  color: PP.lime, shape: BoxShape.circle),
+                              decoration: BoxDecoration(
+                                  color: _live ? PP.lime : PP.inkA(0.3),
+                                  shape: BoxShape.circle),
                             ),
                             const SizedBox(width: 6),
-                            const Text('Session open · Golden Pothos',
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                    color: PP.forest)),
+                            Expanded(
+                              child: Text(
+                                  _live
+                                      ? 'Session open${widget.plantName != null && widget.plantName!.isNotEmpty ? ' · ${widget.plantName}' : ''}'
+                                      : 'Start a scan to open a session',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: PP.forest)),
+                            ),
                           ],
                         ),
                       ],
                     ),
                   ),
+                  const SizedBox(width: 8),
                   Container(
                     width: 38,
                     height: 38,
@@ -172,80 +168,89 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
                       gradient: PP.plantImage,
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: Icon(LucideIcons.sprout,
-                        size: 20, color: PP.forest),
+                    child: const Icon(LucideIcons.stethoscope,
+                        size: 19, color: PP.forest),
                   ),
                 ],
               ),
             ),
             Expanded(
-              child: ListView(
-                controller: _scroll,
-                padding: const EdgeInsets.fromLTRB(22, 6, 22, 16),
-                children: [
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
+              child: _loading && _chat.isEmpty
+                  ? const Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2.4, color: PP.forest),
+                      ),
+                    )
+                  : ListView(
+                      controller: _scroll,
+                      padding: const EdgeInsets.fromLTRB(22, 6, 22, 16),
                       children: [
-                        Container(
-                          width: 200,
-                          height: 132,
-                          decoration: BoxDecoration(
-                            gradient: PP.plantImage,
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(26),
-                              topRight: Radius.circular(26),
-                              bottomLeft: Radius.circular(26),
-                              bottomRight: Radius.circular(8),
+                        if (_live)
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Container(
+                                  width: 190,
+                                  height: 120,
+                                  decoration: BoxDecoration(
+                                    gradient: PP.plantImage,
+                                    borderRadius: const BorderRadius.only(
+                                      topLeft: Radius.circular(26),
+                                      topRight: Radius.circular(26),
+                                      bottomLeft: Radius.circular(26),
+                                      bottomRight: Radius.circular(8),
+                                    ),
+                                  ),
+                                  child: Icon(LucideIcons.image,
+                                      size: 46,
+                                      color:
+                                          PP.forest.withValues(alpha: 0.4)),
+                                ),
+                                const SizedBox(height: 5),
+                                Text('Photo sent to the plant doctor',
+                                    style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w500,
+                                        color: PP.inkA(0.4))),
+                              ],
                             ),
                           ),
-                          child: Icon(LucideIcons.sprout,
-                              size: 62,
-                              color: PP.forest.withValues(alpha: 0.4)),
-                        ),
-                        const SizedBox(height: 5),
-                        Text('Uploaded · 9:38',
-                            style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                                color: PP.inkA(0.4))),
+                        const SizedBox(height: 12),
+                        if (_chat.isEmpty && !_sending)
+                          _softNote(_live
+                              ? 'Reading your photo…'
+                              : 'Open the Scan tab and choose Diagnose to start.'),
+                        for (final m in _chat) ...[
+                          _bubble(m),
+                          const SizedBox(height: 12),
+                        ],
+                        if (_sending)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
+                                const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: PP.forest),
+                                ),
+                                const SizedBox(width: 10),
+                                Text('Plant doctor is typing…',
+                                    style: TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w500,
+                                        color: PP.inkA(0.5))),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  if (!_live) ...[
-                    _likelyIssueCard(),
-                    const SizedBox(height: 12),
-                    _treatmentCard(),
-                    const SizedBox(height: 12),
-                  ],
-                  for (final m in _chat) ...[
-                    _bubble(m),
-                    const SizedBox(height: 12),
-                  ],
-                  if (_sending)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        children: [
-                          const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: PP.forest),
-                          ),
-                          const SizedBox(width: 10),
-                          Text('Plant doctor is typing…',
-                              style: TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w500,
-                                  color: PP.inkA(0.5))),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
             ),
             _composer(),
           ],
@@ -254,146 +259,20 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
     );
   }
 
-  Widget _likelyIssueCard() {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: PP.forest,
-        borderRadius: BorderRadius.circular(28),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('LIKELY ISSUE',
-                  style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.1,
-                      color: PP.bone.withValues(alpha: 0.6))),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: PP.lime,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Text('Moderate',
-                    style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: PP.ink)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text('Leaf-tip scorch',
-              style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: PP.track(22, -0.03),
-                  color: PP.bone)),
-          const SizedBox(height: 8),
-          Text(
-            'Dry air and inconsistent watering, not a pathogen. Confidence 88%.',
-            style: TextStyle(
-                fontSize: 13.5,
-                height: 1.55,
-                color: PP.bone.withValues(alpha: 0.78)),
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _softTag('Not contagious'),
-              _softTag('Recoverable'),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _softTag(String label) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+  Widget _softNote(String text) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
         decoration: BoxDecoration(
-          color: PP.bone.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(18),
+          color: PP.card.withValues(alpha: 0.7),
+          borderRadius: BorderRadius.circular(22),
         ),
-        child: Text(label,
-            style: const TextStyle(
-                fontSize: 12, fontWeight: FontWeight.w600, color: PP.bone)),
+        child: Text(text,
+            style: TextStyle(
+                fontSize: 13,
+                height: 1.5,
+                fontWeight: FontWeight.w500,
+                color: PP.inkA(0.55))),
       );
-
-  Widget _treatmentCard() {
-    const steps = [
-      "Trim scorched tips with clean shears — don't cut into green tissue.",
-      "Water when the top 3 cm dries — roughly every 6 days indoors.",
-      "Group with other plants or add a pebble tray to raise humidity.",
-    ];
-    return SurfaceCard(
-      radius: 28,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Treatment plan',
-              style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.2)),
-          const SizedBox(height: 12),
-          for (var i = 0; i < steps.length; i++) ...[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: PP.pale2,
-                    borderRadius: BorderRadius.circular(9),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text('${i + 1}',
-                      style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: PP.forest)),
-                ),
-                const SizedBox(width: 11),
-                Expanded(
-                  child: Text(steps[i],
-                      style: const TextStyle(
-                          fontSize: 13.5,
-                          height: 1.45,
-                          fontWeight: FontWeight.w500)),
-                ),
-              ],
-            ),
-            if (i != steps.length - 1) const SizedBox(height: 11),
-          ],
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            decoration: BoxDecoration(
-              color: PP.pale1,
-              borderRadius: BorderRadius.circular(24),
-            ),
-            alignment: Alignment.center,
-            child: const Text('Add these as reminders',
-                style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w600,
-                    color: PP.forest)),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _bubble(_Msg m) {
     return Align(
@@ -424,6 +303,7 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
   }
 
   Widget _composer() {
+    final canSend = _live && !_sending;
     return Padding(
       padding: EdgeInsets.fromLTRB(
           22, 0, 22, 20 + MediaQuery.of(context).viewInsets.bottom),
@@ -434,40 +314,44 @@ class _DiagnosisScreenState extends State<DiagnosisScreen> {
           borderRadius: BorderRadius.circular(30),
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: const BoxDecoration(
-                  color: PP.field, shape: BoxShape.circle),
-              child: const Icon(LucideIcons.plus, size: 19, color: PP.ink),
-            ),
-            const SizedBox(width: 9),
+            const SizedBox(width: 6),
             Expanded(
-              child: TextField(
-                controller: _draft,
-                onSubmitted: (_) => _send(),
-                style: const TextStyle(
-                    fontSize: 14.5, fontWeight: FontWeight.w500),
-                decoration: InputDecoration(
-                  isCollapsed: true,
-                  border: InputBorder.none,
-                  hintText: 'Ask a follow-up…',
-                  hintStyle: TextStyle(
-                      color: PP.inkA(0.4), fontWeight: FontWeight.w500),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 110),
+                child: TextField(
+                  controller: _draft,
+                  minLines: 1,
+                  maxLines: 4,
+                  enabled: canSend,
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: (_) => _send(),
+                  style: const TextStyle(
+                      fontSize: 14.5, fontWeight: FontWeight.w500),
+                  decoration: InputDecoration(
+                    isCollapsed: true,
+                    contentPadding:
+                        const EdgeInsets.symmetric(vertical: 12),
+                    border: InputBorder.none,
+                    hintText: 'Ask a follow-up…',
+                    hintStyle: TextStyle(
+                        color: PP.inkA(0.4), fontWeight: FontWeight.w500),
+                  ),
                 ),
               ),
             ),
             const SizedBox(width: 9),
             GestureDetector(
-              onTap: _send,
+              onTap: canSend ? _send : null,
               child: Container(
                 width: 46,
                 height: 46,
-                decoration: const BoxDecoration(
-                    color: PP.ink, shape: BoxShape.circle),
-                child: const Icon(LucideIcons.arrowRight,
-                    size: 19, color: PP.lime),
+                decoration: BoxDecoration(
+                    color: canSend ? PP.ink : PP.inkA(0.35),
+                    shape: BoxShape.circle),
+                child:
+                    const Icon(LucideIcons.arrowRight, size: 19, color: PP.lime),
               ),
             ),
           ],

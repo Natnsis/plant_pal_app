@@ -56,6 +56,28 @@ class AuthController extends ChangeNotifier {
     await _loadUserAndSignIn();
   }
 
+  /// Exchange a Google ID token for a PlantPal session via `POST /auth/google`.
+  /// The token has to come from a real Google Sign-In flow — see
+  /// [LoginScreen] for why this build can't surface the native account
+  /// picker itself.
+  Future<void> loginWithGoogle(String idToken) async {
+    await _api.googleLogin(idToken);
+    await _loadUserAndSignIn();
+  }
+
+  /// Push a locally-changed profile (name / avatar URL) and refresh [user].
+  Future<void> updateProfile({String? fullName, String? imageUrl}) async {
+    user = await _api.updateMe(fullName: fullName, imageUrl: imageUrl);
+    notifyListeners();
+  }
+
+  /// Replace the cached [user] (e.g. after an avatar upload returns the
+  /// updated record).
+  void setUser(UserProfile updated) {
+    user = updated;
+    notifyListeners();
+  }
+
   Future<void> _loadUserAndSignIn() async {
     try {
       user = await _api.me();

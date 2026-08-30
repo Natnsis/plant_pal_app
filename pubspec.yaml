@@ -37,7 +37,6 @@ dependencies:
   http: ^1.2.0
   lucide_icons_flutter: ^3.1.17
   path_provider: ^2.1.0
-
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -78,6 +77,8 @@ flutter:
 
   assets:
     - assets/img/sample_plant.jpg
+    - assets/img/onboarding.jpg
+    - assets/img/profile
 
   # To add assets to your application, add an assets section, like this:
   # assets:

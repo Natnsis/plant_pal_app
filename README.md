@@ -1,12 +1,12 @@
-# plant_app
+# Plant Pal  
 
-A new Flutter project.
+A plant monitoring platform with beautiful ui and ai capablities.
 
-## Getting Started
+## All you need is the app 
 
-This project is a starting point for a Flutter application.
+i designed and built is designed this app with full purpose of automating plant taking care tasks and diagnosis without the research planning part and effective time management.
 
-A few resources to get you started if this is your first Flutter project:
+This is actually my first official flutter app so...might be a bit.....tell or contribute if you think something should change or would help:
 
 - [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
 - [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)

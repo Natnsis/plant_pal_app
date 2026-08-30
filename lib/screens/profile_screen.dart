@@ -2,14 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../api/api_exception.dart';
+import '../api/media_channel.dart';
+import '../api/notif_channel.dart';
 import '../api/plantpal_api.dart';
 import '../models/models.dart';
 import '../state/auth_scope.dart';
 import '../theme/pp_theme.dart';
 import '../widgets/async_view.dart';
 import '../widgets/pp_common.dart';
+import '../widgets/pp_sheets.dart';
 import 'community_screen.dart';
-import 'states_screen.dart';
+import 'help_screen.dart';
+import 'privacy_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -18,10 +22,38 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
+class _ProfileScreenState extends State<ProfileScreen>
+    with WidgetsBindingObserver {
   final _api = PlantPalApi.instance;
   NotificationSettings? _settings;
   final _savingKeys = <String>{};
+  int _settingsKey = 0;
+  NotifPermission _perm = NotifPermission.granted;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _loadPerm();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _loadPerm();
+  }
+
+  Future<void> _loadPerm() async {
+    final p = await NotifChannel.status();
+    if (mounted) setState(() => _perm = p);
+  }
+
+  bool get _osNotifsOn => _perm == NotifPermission.granted;
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +65,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         color: PP.forest,
         onRefresh: () async {
           await auth.refreshUser();
-          setState(() => _settings = null);
+          setState(() {
+            _settings = null;
+            _settingsKey++;
+          });
         },
         child: ListView(
           padding: const EdgeInsets.fromLTRB(22, 20, 22, 120),
@@ -47,12 +82,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     letterSpacing: PP.track(19, -0.025))),
             const SizedBox(height: 12),
             AsyncView<NotificationSettings>(
-              key: ValueKey(_settings == null),
+              key: ValueKey(_settingsKey),
               load: () async {
                 _settings ??= await _api.notificationSettings();
                 return _settings!;
               },
-              builder: (context, s, reload) => _settingsCard(s),
+              // Always render from _settings so optimistic toggle updates in
+              // _save show immediately (the AsyncView's own value is only the
+              // first load).
+              builder: (context, s, reload) => _settingsCard(_settings ?? s),
             ),
             const SizedBox(height: 26),
             Text('More',
@@ -72,11 +110,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _moreRow(LucideIcons.users, 'Community',
                       onTap: () => Navigator.of(context).push(MaterialPageRoute(
                           builder: (_) => const CommunityScreen()))),
-                  _moreRow(LucideIcons.layers, 'Component states',
+                  _moreRow(LucideIcons.circleHelp, 'Help & plant guides',
                       onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const StatesScreen()))),
-                  _moreRow(LucideIcons.circleHelp, 'Help & plant guides'),
-                  _moreRow(LucideIcons.shield, 'Privacy & data'),
+                          builder: (_) => const HelpScreen()))),
+                  _moreRow(LucideIcons.shield, 'Privacy & data',
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const PrivacyScreen()))),
                   _moreRow(LucideIcons.logOut, 'Log out',
                       danger: true,
                       border: false,
@@ -121,7 +160,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         (v) => s.copyWith(vibrationEnabled: v),
       ),
     ];
-    return Container(
+    return Column(
+      children: [
+        if (!_osNotifsOn) _permBanner(),
+        Container(
       padding: const EdgeInsets.symmetric(horizontal: 18),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -139,12 +181,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 children: [
                   Expanded(child: _settingLabel(r.$2, r.$3)),
                   Opacity(
-                    opacity: _savingKeys.contains(r.$1) ? 0.5 : 1,
+                    // Sound / vibration / daily-summary only do anything if
+                    // the OS lets us post notifications at all.
+                    opacity: (_savingKeys.contains(r.$1) ||
+                            (!_osNotifsOn && r.$1 != 'push'))
+                        ? 0.4
+                        : 1,
                     child: PPToggle(
                       value: r.$4,
                       onChanged: _savingKeys.contains(r.$1)
                           ? null
-                          : (v) => _save(r.$1, r.$5(v)),
+                          : (!_osNotifsOn && r.$1 != 'push')
+                              ? (_) => _openNotifSettings()
+                              : (v) => _save(r.$1, r.$5(v)),
                     ),
                   ),
                 ],
@@ -174,10 +223,83 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ],
       ),
+        ),
+      ],
     );
   }
 
+  Widget _permBanner() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: PP.amberBg,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        children: [
+          const Icon(LucideIcons.bellOff, size: 20, color: PP.amberFg),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _perm == NotifPermission.denied
+                  ? 'Notifications are turned off for PlantPal in your phone settings.'
+                  : 'Allow notifications so reminders reach your phone.',
+              style: const TextStyle(
+                  fontSize: 12.5,
+                  height: 1.4,
+                  fontWeight: FontWeight.w600,
+                  color: PP.amberFg),
+            ),
+          ),
+          const SizedBox(width: 10),
+          GestureDetector(
+            onTap: _openNotifSettings,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: PP.amberFg,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                  _perm == NotifPermission.deniedCanRetry ? 'Allow' : 'Settings',
+                  style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: PP.amberBg)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openNotifSettings() async {
+    if (_perm == NotifPermission.deniedCanRetry) {
+      final r = await NotifChannel.requestPermission();
+      if (mounted) setState(() => _perm = r);
+      if (r == NotifPermission.granted) return;
+    }
+    await NotifChannel.openSettings();
+  }
+
   Future<void> _save(String key, NotificationSettings next) async {
+    // Turning push notifications on triggers the real OS permission prompt
+    // (Android 13+, via the native bridge). If the user declines it we still
+    // save the preference — the in-app inbox banner keeps working — but real
+    // phone notifications won't fire until they allow it in Settings.
+    if (key == 'push' && next.notificationEnabled) {
+      final result = await NotifChannel.requestPermission();
+      if (result != NotifPermission.granted && mounted) {
+        showPPSnack(
+          context,
+          'Saved. Turn on notifications for PlantPal in your phone settings to '
+          'get reminders on your lock screen.',
+        );
+      }
+    }
+
     setState(() {
       _savingKeys.add(key);
       _settings = next; // optimistic
@@ -190,6 +312,97 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } finally {
       if (mounted) setState(() => _savingKeys.remove(key));
     }
+  }
+
+  Future<void> _editProfile(UserProfile user) async {
+    final name = TextEditingController(text: user.fullName);
+    final action = await showPPSheet<String>(
+      context,
+      title: 'Edit profile',
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Name', style: TextStyle(fontSize: 12.5, color: PP.inkA(0.5))),
+          const SizedBox(height: 6),
+          PPSheetField(controller: name, hint: 'Your name'),
+          const SizedBox(height: 16),
+          Text('Profile photo',
+              style: TextStyle(fontSize: 12.5, color: PP.inkA(0.5))),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _pickBtn(ctx, LucideIcons.camera, 'Camera', 'camera'),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _pickBtn(ctx, LucideIcons.image, 'Gallery', 'gallery'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          PrimaryButton(
+            label: 'Save name',
+            background: PP.forest,
+            onPressed: () => Navigator.of(ctx).pop('name'),
+          ),
+        ],
+      ),
+    );
+    if (action == null || !mounted) return;
+
+    if (action == 'name') {
+      try {
+        await AuthScope.of(context).updateProfile(
+          fullName: name.text.trim().isEmpty ? null : name.text.trim(),
+        );
+        if (mounted) showPPSnack(context, 'Profile updated');
+      } on ApiException catch (e) {
+        if (mounted) showPPSnack(context, e.message, error: true);
+      }
+      return;
+    }
+
+    // camera / gallery -> upload avatar
+    try {
+      final bytes = action == 'camera'
+          ? await MediaChannel.capture()
+          : await MediaChannel.pickFromGallery();
+      if (bytes == null || !mounted) return;
+      final updated = await _api.uploadAvatar(bytes);
+      if (!mounted) return;
+      AuthScope.of(context).setUser(updated);
+      showPPSnack(context, 'Photo updated');
+    } on MediaException catch (e) {
+      if (mounted) showPPSnack(context, e.message, error: true);
+    } on ApiException catch (e) {
+      if (mounted) showPPSnack(context, e.message, error: true);
+    }
+  }
+
+  Widget _pickBtn(
+      BuildContext ctx, IconData icon, String label, String value) {
+    return GestureDetector(
+      onTap: () => Navigator.of(ctx).pop(value),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 20, color: PP.forest),
+            const SizedBox(height: 5),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 12.5, fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _settingLabel(String label, String sub) {
@@ -223,7 +436,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Row(
             children: [
               InitialsAvatar(user?.initials ?? '🌱',
-                  size: 62, radius: 22, fontSize: 20),
+                  imageUrl: user?.imageUrl,
+                  placeholderAsset: kProfilePlaceholderAsset,
+                  size: 62,
+                  radius: 22,
+                  fontSize: 20),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -244,14 +461,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ],
                 ),
               ),
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: PP.bone.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(14),
+              GestureDetector(
+                onTap: user == null ? null : () => _editProfile(user),
+                child: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: PP.bone.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child:
+                      const Icon(LucideIcons.pencil, size: 17, color: PP.bone),
                 ),
-                child: const Icon(LucideIcons.pencil, size: 17, color: PP.bone),
               ),
             ],
           ),

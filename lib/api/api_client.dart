@@ -50,15 +50,37 @@ class ApiClient {
     required String filename,
     String field = 'image',
     String contentType = 'image/jpeg',
+  }) =>
+      uploadMultipart<T>(
+        path,
+        imageBytes: bytes,
+        filename: filename,
+        imageField: field,
+      );
+
+  /// Multipart request with arbitrary text fields plus an optional image
+  /// file. Used by `/journal` (text fields + optional photo), `/scan` and
+  /// `/diagnosis` (image only, via [uploadImage]), and `PUT /plants/{id}/photo`
+  /// / `PUT /users/me/avatar`.
+  Future<T> uploadMultipart<T>(
+    String path, {
+    String method = 'POST',
+    Map<String, String> fields = const {},
+    Uint8List? imageBytes,
+    String filename = 'image.jpg',
+    String imageField = 'image',
   }) async {
     Future<http.Response> attempt() async {
-      final req = http.MultipartRequest('POST', _uri(path, null));
+      final req = http.MultipartRequest(method, _uri(path, null));
       req.headers.addAll(_authHeaders(json: false));
-      req.files.add(http.MultipartFile.fromBytes(
-        field,
-        bytes,
-        filename: filename,
-      ));
+      req.fields.addAll(fields);
+      if (imageBytes != null) {
+        req.files.add(http.MultipartFile.fromBytes(
+          imageField,
+          imageBytes,
+          filename: filename,
+        ));
+      }
       final streamed = await _http.send(req).timeout(const Duration(seconds: 60));
       return http.Response.fromStream(streamed);
     }

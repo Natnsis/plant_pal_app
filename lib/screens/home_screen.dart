@@ -8,9 +8,12 @@ import '../state/auth_scope.dart';
 import '../theme/pp_theme.dart';
 import '../widgets/async_view.dart';
 import '../widgets/pp_common.dart';
+import 'garden_health_screen.dart';
 import 'notifications_screen.dart';
 import 'plant_detail_screen.dart';
 import 'reminders_screen.dart';
+import 'root_shell.dart';
+import 'search_screen.dart';
 import 'weather_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -83,8 +86,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       letterSpacing: PP.track(33)),
                 ),
                 const SizedBox(height: 18),
-                _healthCard(user, avgHealth, data.reminders.length - pending,
-                    data.reminders.length),
+                GestureDetector(
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const GardenHealthScreen())),
+                  child: _healthCard(user, avgHealth,
+                      data.reminders.length - pending, data.reminders.length),
+                ),
                 const SizedBox(height: 26),
                 SectionHeader('Today’s care',
                     trailing: 'All tasks',
@@ -103,13 +110,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 SectionHeader('Your plants',
                     trailing: data.plants.isEmpty
                         ? null
-                        : 'See all ${data.plants.length}'),
+                        : 'See all ${data.plants.length}',
+                    onTrailingTap: () => RootNav.of(context)?.goToTab(1)),
                 const SizedBox(height: 12),
                 if (data.plants.isEmpty)
                   _softNote('Scan your first plant to start your collection.')
                 else
                   SizedBox(
-                    height: 210,
+                    height: 262,
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       padding: EdgeInsets.zero,
@@ -146,7 +154,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final name = (user?.fullName ?? 'there').split(' ').first;
     return Row(
       children: [
-        InitialsAvatar(user?.initials ?? '🌱'),
+        InitialsAvatar(user?.initials ?? '🌱',
+            imageUrl: user?.imageUrl,
+            placeholderAsset: kProfilePlaceholderAsset),
         const SizedBox(width: 11),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -164,7 +174,11 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         const Spacer(),
-        SquircleIconButton(icon: LucideIcons.search, onTap: () {}),
+        SquircleIconButton(
+          icon: LucideIcons.search,
+          onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const SearchScreen())),
+        ),
         const SizedBox(width: 9),
         SquircleIconButton(
           icon: LucideIcons.bell,
@@ -191,14 +205,17 @@ class _HomeScreenState extends State<HomeScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Tag('Care streak · ${user?.careStreakDays ?? 0} days',
-                  background: PP.pale1,
-                  foreground: PP.forest,
-                  icon: LucideIcons.flame,
-                  fontSize: 12,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 13, vertical: 7)),
-              Text('$done of $total done',
+              Builder(builder: (_) {
+                final s = user?.careStreakDays ?? 0;
+                return Tag('Care streak · $s ${s == 1 ? 'day' : 'days'}',
+                    background: PP.pale1,
+                    foreground: PP.forest,
+                    icon: LucideIcons.flame,
+                    fontSize: 12,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 13, vertical: 7));
+              }),
+              Text(total == 0 ? 'Nothing due today' : '$done of $total done',
                   style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w600,
@@ -392,17 +409,20 @@ class _MiniPlantCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(28),
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SizedBox(
-              height: 118,
+              height: 112,
               child: Stack(
                 children: [
                   PlantImage(
-                      height: 118,
+                      imageUrl: plant.photoUrl,
+                      height: 112,
                       width: double.infinity,
+                      radius: 20,
                       dark: dark,
-                      iconSize: 60),
+                      iconSize: 58),
                   Positioned(
                     top: 9,
                     left: 9,

@@ -5,6 +5,7 @@ import '../api/api_exception.dart';
 import '../state/auth_scope.dart';
 import '../theme/pp_theme.dart';
 import '../widgets/pp_common.dart';
+import '../widgets/pp_sheets.dart';
 import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -50,6 +51,64 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _error = e.message);
     } catch (_) {
       setState(() => _error = 'Could not sign in. Try again.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _google() async {
+    // This Flutter SDK ships without `flutter_web_plugins`, so `google_sign_in`
+    // (and every other federated plugin) can't be added — there's no way to
+    // pop the native Google account picker from here. The exchange with the
+    // backend (`POST /auth/google`) is fully wired via
+    // AuthController.loginWithGoogle; on a full build, drop in google_sign_in
+    // and call it with the ID token. For now, offer the manual token path so
+    // the flow is still testable.
+    final token = await showPPSheet<String>(
+      context,
+      title: 'Continue with Google',
+      builder: (ctx) {
+        final field = TextEditingController();
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "This build can't open the Google account picker (the platform "
+              "plugin isn't available on this SDK). Paste a Google ID token to "
+              "sign in, or use email above.",
+              style: TextStyle(
+                  fontSize: 13, height: 1.5, color: PP.inkA(0.6)),
+            ),
+            const SizedBox(height: 14),
+            PPSheetField(
+              controller: field,
+              hint: 'Google ID token',
+              minLines: 2,
+              maxLines: 4,
+            ),
+            const SizedBox(height: 14),
+            PrimaryButton(
+              label: 'Sign in',
+              background: PP.forest,
+              onPressed: () => Navigator.of(ctx).pop(field.text.trim()),
+            ),
+          ],
+        );
+      },
+    );
+    if (token == null || token.isEmpty || !mounted) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await AuthScope.of(context).loginWithGoogle(token);
+      if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+    } catch (_) {
+      setState(() => _error = 'Google sign-in failed. Try email instead.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -188,16 +247,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      Expanded(
-                          child: _SocialButton(
-                              label: 'Google', icon: LucideIcons.globe2)),
-                      const SizedBox(width: 12),
-                      Expanded(
-                          child: _SocialButton(
-                              label: 'Apple', icon: LucideIcons.apple)),
-                    ],
+                  _SocialButton(
+                    label: 'Continue with Google',
+                    icon: LucideIcons.globe2,
+                    onTap: _busy ? null : _google,
                   ),
                   const SizedBox(height: 24),
                   Center(
@@ -315,27 +368,31 @@ class _ErrorBanner extends StatelessWidget {
 }
 
 class _SocialButton extends StatelessWidget {
-  const _SocialButton({required this.label, required this.icon});
+  const _SocialButton({required this.label, required this.icon, this.onTap});
   final String label;
   final IconData icon;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(26),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 18, color: PP.ink),
-          const SizedBox(width: 10),
-          Text(label,
-              style:
-                  const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
-        ],
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(26),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 18, color: PP.ink),
+            const SizedBox(width: 10),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 14.5, fontWeight: FontWeight.w600)),
+          ],
+        ),
       ),
     );
   }

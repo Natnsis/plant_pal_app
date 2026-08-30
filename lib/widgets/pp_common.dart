@@ -3,42 +3,70 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../theme/pp_theme.dart';
 
-/// Rounded plant-photo placeholder — a soft green gradient with a faded sprout.
+/// Bundled avatar shown for a user who hasn't set a profile picture.
+const String kProfilePlaceholderAsset = 'assets/img/profile';
+
+/// Rounded plant photo. Shows [imageUrl] when given (with a graceful
+/// placeholder while it loads or if it fails), otherwise the soft green
+/// gradient + faded sprout placeholder the mockups use.
 class PlantImage extends StatelessWidget {
   const PlantImage({
     super.key,
+    this.imageUrl,
     this.height,
     this.width,
     this.radius = 20,
     this.dark = false,
     this.iconSize = 58,
+    this.fit = BoxFit.cover,
     this.child,
   });
 
+  final String? imageUrl;
   final double? height;
   final double? width;
   final double radius;
   final bool dark;
   final double iconSize;
+  final BoxFit fit;
   final Widget? child;
+
+  Widget _placeholder() => Container(
+        height: height,
+        width: width,
+        decoration: BoxDecoration(
+          gradient: dark ? null : PP.plantImage,
+          color: dark ? PP.bone.withValues(alpha: 0.12) : null,
+          borderRadius: BorderRadius.circular(radius),
+        ),
+        alignment: Alignment.center,
+        child: child ??
+            Icon(
+              LucideIcons.sprout,
+              size: iconSize,
+              color: (dark ? PP.mint : PP.forest)
+                  .withValues(alpha: dark ? 0.5 : 0.38),
+            ),
+      );
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: height,
-      width: width,
-      decoration: BoxDecoration(
-        gradient: dark ? null : PP.plantImage,
-        color: dark ? PP.bone.withValues(alpha: 0.12) : null,
-        borderRadius: BorderRadius.circular(radius),
+    final url = imageUrl;
+    if (url == null || url.isEmpty || !url.startsWith('http')) {
+      return _placeholder();
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: Image.network(
+        url,
+        height: height,
+        width: width,
+        fit: fit,
+        gaplessPlayback: true,
+        loadingBuilder: (context, child, progress) =>
+            progress == null ? child : _placeholder(),
+        errorBuilder: (context, _, _) => _placeholder(),
       ),
-      alignment: Alignment.center,
-      child: child ??
-          Icon(
-            LucideIcons.sprout,
-            size: iconSize,
-            color: (dark ? PP.mint : PP.forest).withValues(alpha: dark ? 0.5 : 0.38),
-          ),
     );
   }
 }
@@ -433,24 +461,33 @@ class FilterChipPP extends StatelessWidget {
   }
 }
 
-/// Round avatar with initials.
+/// Round avatar. Shows [imageUrl] when set, otherwise the user's [initials]
+/// on the soft green gradient.
 class InitialsAvatar extends StatelessWidget {
   const InitialsAvatar(
     this.initials, {
     super.key,
+    this.imageUrl,
+    this.placeholderAsset,
     this.size = 42,
     this.radius = 15,
     this.fontSize = 14,
   });
 
   final String initials;
+  final String? imageUrl;
+
+  /// Shown when [imageUrl] is empty — e.g. the bundled profile placeholder
+  /// for a user who hasn't uploaded a picture. Falls back to [initials] when
+  /// null.
+  final String? placeholderAsset;
   final double size;
   final double radius;
   final double fontSize;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final initialsBox = Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
@@ -469,6 +506,33 @@ class InitialsAvatar extends StatelessWidget {
           fontWeight: FontWeight.w700,
           color: PP.forest,
         ),
+      ),
+    );
+    final fallback = placeholderAsset == null
+        ? initialsBox
+        : ClipRRect(
+            borderRadius: BorderRadius.circular(radius),
+            child: Image.asset(
+              placeholderAsset!,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (context, _, _) => initialsBox,
+            ),
+          );
+    final url = imageUrl;
+    if (url == null || url.isEmpty || !url.startsWith('http')) return fallback;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: Image.network(
+        url,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        loadingBuilder: (context, child, progress) =>
+            progress == null ? child : fallback,
+        errorBuilder: (context, _, _) => fallback,
       ),
     );
   }

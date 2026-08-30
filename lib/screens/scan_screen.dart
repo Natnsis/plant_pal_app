@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show Uint8List, rootBundle;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../api/api_exception.dart';
+import '../api/media_channel.dart';
 import '../api/plantpal_api.dart';
 import '../theme/pp_theme.dart';
 import '../widgets/async_view.dart';
@@ -26,6 +27,7 @@ class _ScanScreenState extends State<ScanScreen>
   final _api = PlantPalApi.instance;
   bool _diagnoseMode = false;
   bool _busy = false;
+  String? _retakeHint;
 
   @override
   void dispose() {
@@ -33,35 +35,73 @@ class _ScanScreenState extends State<ScanScreen>
     super.dispose();
   }
 
-  /// No camera/gallery plugin resolves on this Flutter SDK, so the capture
-  /// uses a bundled sample photo — the request path to `/scan` and
-  /// `/diagnosis` is the real one.
-  Future<void> _capture() async {
-    if (_busy) return;
-    setState(() => _busy = true);
+  /// Real capture via the hand-rolled platform bridge (no image_picker on
+  /// this SDK). Falls back to the bundled sample only when the bridge is
+  /// genuinely unavailable (desktop builds).
+  Future<Uint8List?> _grab({required bool camera}) async {
     try {
-      final data = await rootBundle.load('assets/img/sample_plant.jpg');
-      final bytes = data.buffer.asUint8List();
+      final bytes = camera
+          ? await MediaChannel.capture()
+          : await MediaChannel.pickFromGallery();
+      return bytes; // null = user cancelled
+    } on MediaException catch (e) {
+      if (!mounted) return null;
+      if (e.message.contains('platform')) {
+        showPPSnack(context,
+            'No camera on this build — sending a sample photo instead.');
+        final data = await rootBundle.load('assets/img/sample_plant.jpg');
+        return data.buffer.asUint8List();
+      }
+      showPPSnack(context, e.message, error: true);
+      return null;
+    }
+  }
+
+  Future<void> _run({required bool camera}) async {
+    if (_busy) return;
+    final bytes = await _grab(camera: camera);
+    if (bytes == null || !mounted) return;
+
+    setState(() {
+      _busy = true;
+      _retakeHint = null;
+    });
+    try {
       if (_diagnoseMode) {
         final session = await _api.startDiagnosis(bytes);
         if (!mounted) return;
         Navigator.of(context).pushReplacement(MaterialPageRoute(
             builder: (_) => DiagnosisScreen(sessionId: session.id)));
-      } else {
-        final result = await _api.scan(bytes);
-        if (!mounted) return;
-        Navigator.of(context).pushReplacement(MaterialPageRoute(
-            builder: (_) => ScanResultScreen(result: result)));
+        return;
       }
+
+      final result = await _api.scan(bytes);
+      if (!mounted) return;
+      if (result.retake) {
+        setState(() => _retakeHint =
+            "Couldn't confidently identify that${result.confidencePercent > 0 ? ' (${result.confidencePercent}% match)' : ''}. "
+            'Get closer, fill the frame with the plant, and use daylight.');
+        return;
+      }
+      Navigator.of(context).pushReplacement(MaterialPageRoute(
+          builder: (_) => ScanResultScreen(result: result)));
     } on ApiException catch (e) {
-      if (mounted) {
+      if (!mounted) return;
+      if (e.isBadRequest && e.message.toLowerCase().contains('blur')) {
+        setState(() => _retakeHint =
+            'That photo was too blurry to read. Hold still and tap again.');
+      } else if (e.isRateLimited) {
         showPPSnack(
-          context,
-          e.isServer
-              ? 'The identifier could not read that photo. Try a clear, well-lit shot of the whole plant.'
-              : e.message,
-          error: true,
-        );
+            context,
+            _diagnoseMode
+                ? "You've used today's 5 diagnoses. Try again tomorrow."
+                : "You've used today's 3 scans. Try again tomorrow.",
+            error: true);
+      } else if (e.isServer) {
+        setState(() => _retakeHint =
+            "The identifier couldn't read that image. Try a clear, well-lit shot of the whole plant.");
+      } else {
+        showPPSnack(context, e.message, error: true);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -86,44 +126,74 @@ class _ScanScreenState extends State<ScanScreen>
               ),
             ),
           ),
-          Center(
-            child: Icon(LucideIcons.sprout,
-                size: 250, color: PP.bone.withValues(alpha: 0.55)),
-          ),
           SafeArea(
             child: Column(
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(22, 14, 22, 0),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       _glassCircle(LucideIcons.chevronLeft,
                           onTap: () => Navigator.of(context).maybePop()),
-                      const Text('Identify plant',
-                          style: TextStyle(
+                      const SizedBox(width: 14),
+                      Text(_diagnoseMode ? 'Diagnose a plant' : 'Identify a plant',
+                          style: const TextStyle(
                               fontSize: 14.5,
                               fontWeight: FontWeight.w600,
                               color: PP.bone)),
-                      _glassCircle(LucideIcons.settings2),
                     ],
                   ),
                 ),
-                const SizedBox(height: 34),
-                _frame(),
+                const SizedBox(height: 30),
+                GestureDetector(
+                  onTap: _busy ? null : () => _run(camera: true),
+                  child: _frame(),
+                ),
                 const SizedBox(height: 22),
-                const Text('Frame the whole plant',
-                    style: TextStyle(
+                Text(
+                    _diagnoseMode
+                        ? 'Photograph the affected leaves'
+                        : 'Frame the whole plant',
+                    style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                         letterSpacing: -0.3,
                         color: PP.bone)),
                 const SizedBox(height: 4),
-                Text('Include leaves and pot for a better match',
+                Text('Tap the circle to open your camera',
                     style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
                         color: PP.bone.withValues(alpha: 0.7))),
+                if (_retakeHint != null) ...[
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 30),
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: PP.amberBg,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(LucideIcons.triangleAlert,
+                              size: 18, color: PP.amberFg),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(_retakeHint!,
+                                style: const TextStyle(
+                                    fontSize: 12.5,
+                                    height: 1.45,
+                                    fontWeight: FontWeight.w600,
+                                    color: PP.amberFg)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
                 const Spacer(),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(22, 0, 22, 30),
@@ -146,11 +216,14 @@ class _ScanScreenState extends State<ScanScreen>
                       ),
                       const SizedBox(height: 22),
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          _squareGlass(LucideIcons.image),
+                          _squareGlass(LucideIcons.image, 'Gallery',
+                              onTap: _busy ? null : () => _run(camera: false)),
                           _shutter(),
-                          _squareGlass(LucideIcons.scanLine),
+                          // Balances the row so the shutter stays centred.
+                          const SizedBox(width: 54),
                         ],
                       ),
                     ],
@@ -169,31 +242,46 @@ class _ScanScreenState extends State<ScanScreen>
       width: 290,
       height: 290,
       child: Stack(
+        alignment: Alignment.center,
         children: [
           _corner(top: 0, left: 0, tl: true),
           _corner(top: 0, right: 0, tr: true),
           _corner(bottom: 0, left: 0, bl: true),
           _corner(bottom: 0, right: 0, br: true),
-          AnimatedBuilder(
-            animation: _c,
-            builder: (context, _) {
-              final t = (_c.value - 0.5) * 2; // -1..1
-              return Align(
-                alignment: Alignment(0, t * 0.84),
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 8),
-                  height: 2,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [
-                      PP.lime.withValues(alpha: 0),
-                      PP.lime,
-                      PP.lime.withValues(alpha: 0),
-                    ]),
-                  ),
-                ),
-              );
-            },
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_busy ? LucideIcons.loader : LucideIcons.camera,
+                  size: 64, color: PP.bone.withValues(alpha: 0.9)),
+              const SizedBox(height: 10),
+              Text(_busy ? 'Reading…' : 'Tap to open camera',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: PP.bone.withValues(alpha: 0.8))),
+            ],
           ),
+          if (!_busy)
+            AnimatedBuilder(
+              animation: _c,
+              builder: (context, _) {
+                final t = (_c.value - 0.5) * 2;
+                return Align(
+                  alignment: Alignment(0, t * 0.84),
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 8),
+                    height: 2,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(colors: [
+                        PP.lime.withValues(alpha: 0),
+                        PP.lime,
+                        PP.lime.withValues(alpha: 0),
+                      ]),
+                    ),
+                  ),
+                );
+              },
+            ),
         ],
       ),
     );
@@ -251,21 +339,35 @@ class _ScanScreenState extends State<ScanScreen>
     );
   }
 
-  Widget _squareGlass(IconData icon) {
-    return Container(
-      width: 54,
-      height: 54,
-      decoration: BoxDecoration(
-        color: PP.bone.withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(20),
+  Widget _squareGlass(IconData icon, String label, {VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: PP.bone.withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Icon(icon, size: 22, color: PP.bone),
+          ),
+          const SizedBox(height: 6),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: PP.bone.withValues(alpha: 0.7))),
+        ],
       ),
-      child: Icon(icon, size: 22, color: PP.bone),
     );
   }
 
   Widget _shutter() {
     return GestureDetector(
-      onTap: _busy ? null : _capture,
+      onTap: _busy ? null : () => _run(camera: true),
       child: Container(
         width: 86,
         height: 86,
@@ -291,7 +393,7 @@ class _ScanScreenState extends State<ScanScreen>
                     child: CircularProgressIndicator(
                         strokeWidth: 2.6, color: PP.ink),
                   )
-                : Icon(_diagnoseMode ? LucideIcons.stethoscope : LucideIcons.scan,
+                : Icon(_diagnoseMode ? LucideIcons.stethoscope : LucideIcons.camera,
                     size: 28, color: PP.ink),
           ),
         ),
