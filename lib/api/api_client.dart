@@ -112,10 +112,14 @@ class ApiClient {
         'DELETE' => _http.delete(uri, headers: headers, body: encoded),
         _ => throw ArgumentError('method $method'),
       };
-      return f.timeout(const Duration(seconds: 40));
+      return f.timeout(const Duration(seconds: 60));
     }
 
-    var res = await _guard(attempt);
+    // Only auto-retry idempotent reads; retrying a POST/PUT/etc could double
+    // a create or a "mark done".
+    var res = method == 'GET'
+        ? await _guardRetrying(attempt)
+        : await _guard(attempt);
     if (res.statusCode == 401 && await _tryRefresh()) {
       res = await _guard(attempt);
     }
@@ -132,6 +136,40 @@ class ApiClient {
     } catch (e) {
       throw ApiException('Network error: $e');
     }
+  }
+
+  /// Like [_guard] but transparently retries once on a transient failure — a
+  /// timeout, a network blip, or a 5xx from the (free-tier, sometimes
+  /// overloaded / cold) backend. One extra attempt after a short delay hides
+  /// the vast majority of "failed to fetch …" flakes.
+  Future<http.Response> _guardRetrying(
+      Future<http.Response> Function() run) async {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final res = await run();
+        if (res.statusCode >= 500 && res.statusCode != 501 && attempt == 0) {
+          await Future.delayed(const Duration(milliseconds: 1400));
+          continue;
+        }
+        return res;
+      } on TimeoutException {
+        if (attempt == 0) {
+          await Future.delayed(const Duration(milliseconds: 800));
+          continue;
+        }
+        throw ApiException(
+          'The server took too long to respond. It may be waking up — try again.',
+        );
+      } catch (e) {
+        if (attempt == 0) {
+          await Future.delayed(const Duration(milliseconds: 800));
+          continue;
+        }
+        throw ApiException('Network error: $e');
+      }
+    }
+    // Unreachable, but keeps the analyzer happy.
+    return run();
   }
 
   Uri _uri(String path, Map<String, String>? query) {

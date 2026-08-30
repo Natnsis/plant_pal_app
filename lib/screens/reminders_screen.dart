@@ -37,20 +37,32 @@ class _RemindersScreenState extends State<RemindersScreen> {
     return DateTime(n.year, n.month, n.day);
   }
 
-  Future<List<Reminder>> _load() => _api.reminders(
+  static String _key(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  /// Returns (today's due list — authoritative, matches Home, TZ-safe on the
+  /// server — , the wider range for the strip + other days).
+  Future<(List<Reminder>, List<Reminder>)> _load() async {
+    final today = await _api.todayReminders();
+    List<Reminder> all = const [];
+    try {
+      all = await _api.reminders(
         status: 'all',
         from: _today().subtract(const Duration(days: _stripBack + 1)),
         to: _today().add(const Duration(days: _stripFwd + 1)),
       );
+    } catch (_) {}
+    return (today, all);
+  }
 
-  Map<DateTime, List<Reminder>> _byDay(List<Reminder> all) {
-    final map = <DateTime, List<Reminder>>{};
+  Map<String, List<Reminder>> _byDay(List<Reminder> all) {
+    final map = <String, List<Reminder>>{};
     for (final r in all) {
-      (map[r.day] ??= []).add(r);
+      (map[_key(r.day)] ??= []).add(r);
     }
     for (final list in map.values) {
-      list.sort((a, b) => (a.scheduledTime ?? a.day)
-          .compareTo(b.scheduledTime ?? b.day));
+      list.sort((a, b) =>
+          (a.scheduledTime ?? a.day).compareTo(b.scheduledTime ?? b.day));
     }
     return map;
   }
@@ -60,12 +72,27 @@ class _RemindersScreenState extends State<RemindersScreen> {
     return Scaffold(
       backgroundColor: PP.bone,
       body: SafeArea(
-        child: AsyncView<List<Reminder>>(
+        child: AsyncView<(List<Reminder>, List<Reminder>)>(
           key: ValueKey(_reloadKey),
           load: _load,
-          builder: (context, all, reload) {
+          builder: (context, data, reload) {
+            final (todayList, all) = data;
             final byDay = _byDay(all);
-            final dayItems = byDay[_selected] ?? const <Reminder>[];
+            final isTodaySel = _selected == _today();
+
+            // Today's view = the authoritative /reminders/today list, merged
+            // with anything already done/skipped today from the range list
+            // (deduped by id). Other days bucket straight from the range.
+            List<Reminder> dayItems;
+            if (isTodaySel) {
+              final ids = todayList.map((r) => r.id).toSet();
+              final extras = (byDay[_key(_today())] ?? const <Reminder>[])
+                  .where((r) => !ids.contains(r.id));
+              dayItems = [...todayList, ...extras]..sort((a, b) =>
+                  (a.scheduledTime ?? a.day).compareTo(b.scheduledTime ?? b.day));
+            } else {
+              dayItems = byDay[_key(_selected)] ?? const <Reminder>[];
+            }
             final done = dayItems
                 .where((r) => r.status == ReminderStatus.done)
                 .length;
@@ -91,7 +118,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
                     ),
                   ),
                   const SizedBox(height: 18),
-                  _strip(byDay),
+                  _strip(byDay, todayList),
                   const SizedBox(height: 22),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 22),
@@ -162,7 +189,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
                 color: PP.inkA(0.55))),
       );
 
-  Widget _strip(Map<DateTime, List<Reminder>> byDay) {
+  Widget _strip(Map<String, List<Reminder>> byDay, List<Reminder> todayList) {
     final start = _today().subtract(const Duration(days: _stripBack));
     const count = _stripBack + 1 + _stripFwd;
     return SizedBox(
@@ -174,9 +201,11 @@ class _RemindersScreenState extends State<RemindersScreen> {
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (_, i) {
           final day = start.add(Duration(days: i));
-          final items = byDay[day] ?? const <Reminder>[];
-          final selected = day == _selected;
           final isToday = day == _today();
+          final items = isToday
+              ? todayList
+              : (byDay[_key(day)] ?? const <Reminder>[]);
+          final selected = day == _selected;
           return GestureDetector(
             onTap: () => setState(() => _selected = day),
             child: Container(

@@ -52,4 +52,7 @@ dependencies {
     // FileProvider + ExifInterface for the hand-rolled camera bridge in
     // MainActivity.kt (no image_picker plugin on this SDK).
     implementation("androidx.core:core-ktx:1.13.1")
+    // Native Google Sign-In (no google_sign_in plugin on this SDK) — used by
+    // the plantpal/auth MethodChannel to fetch an ID token for POST /auth/google.
+    implementation("com.google.android.gms:play-services-auth:21.3.0")
 }

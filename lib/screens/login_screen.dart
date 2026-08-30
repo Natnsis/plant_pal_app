@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../api/api_exception.dart';
+import '../api/google_auth.dart';
 import '../state/auth_scope.dart';
 import '../theme/pp_theme.dart';
 import '../widgets/pp_common.dart';
-import '../widgets/pp_sheets.dart';
 import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -57,54 +57,23 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _google() async {
-    // This Flutter SDK ships without `flutter_web_plugins`, so `google_sign_in`
-    // (and every other federated plugin) can't be added — there's no way to
-    // pop the native Google account picker from here. The exchange with the
-    // backend (`POST /auth/google`) is fully wired via
-    // AuthController.loginWithGoogle; on a full build, drop in google_sign_in
-    // and call it with the ID token. For now, offer the manual token path so
-    // the flow is still testable.
-    final token = await showPPSheet<String>(
-      context,
-      title: 'Continue with Google',
-      builder: (ctx) {
-        final field = TextEditingController();
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "This build can't open the Google account picker (the platform "
-              "plugin isn't available on this SDK). Paste a Google ID token to "
-              "sign in, or use email above.",
-              style: TextStyle(
-                  fontSize: 13, height: 1.5, color: PP.inkA(0.6)),
-            ),
-            const SizedBox(height: 14),
-            PPSheetField(
-              controller: field,
-              hint: 'Google ID token',
-              minLines: 2,
-              maxLines: 4,
-            ),
-            const SizedBox(height: 14),
-            PrimaryButton(
-              label: 'Sign in',
-              background: PP.forest,
-              onPressed: () => Navigator.of(ctx).pop(field.text.trim()),
-            ),
-          ],
-        );
-      },
-    );
-    if (token == null || token.isEmpty || !mounted) return;
+    if (_busy) return;
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
+      final token = await GoogleAuth.signIn();
+      if (token == null) {
+        // User dismissed the account chooser.
+        if (mounted) setState(() => _busy = false);
+        return;
+      }
+      if (!mounted) return;
       await AuthScope.of(context).loginWithGoogle(token);
       if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
+    } on GoogleAuthException catch (e) {
+      setState(() => _error = e.message);
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } catch (_) {

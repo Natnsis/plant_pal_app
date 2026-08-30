@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../api/api_exception.dart';
+import '../api/google_auth.dart';
 import '../state/auth_scope.dart';
 import '../theme/pp_theme.dart';
 import '../widgets/pp_common.dart';
@@ -35,6 +36,32 @@ class _SignupScreenState extends State<SignupScreen> {
     if (p.contains(RegExp(r'[0-9]'))) s++;
     if (p.contains(RegExp(r'[A-Z]')) || p.contains(RegExp(r'[^A-Za-z0-9]'))) s++;
     return s;
+  }
+
+  Future<void> _google() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final token = await GoogleAuth.signIn();
+      if (token == null) {
+        if (mounted) setState(() => _busy = false);
+        return;
+      }
+      if (!mounted) return;
+      await AuthScope.of(context).loginWithGoogle(token);
+      if (mounted) Navigator.of(context).popUntil((r) => r.isFirst);
+    } on GoogleAuthException catch (e) {
+      setState(() => _error = e.message);
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+    } catch (_) {
+      setState(() => _error = 'Google sign-in failed. Try email instead.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _submit() async {
@@ -221,6 +248,27 @@ class _SignupScreenState extends State<SignupScreen> {
                 fontSize: 16,
                 padding: 20,
                 onPressed: _busy ? null : _submit,
+              ),
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: _busy ? null : _google,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(26),
+                  ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(LucideIcons.globe2, size: 18, color: PP.ink),
+                      SizedBox(width: 10),
+                      Text('Continue with Google',
+                          style: TextStyle(
+                              fontSize: 14.5, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
               ),
               const SizedBox(height: 14),
               Center(

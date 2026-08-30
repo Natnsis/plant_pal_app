@@ -48,6 +48,20 @@ class _AsyncViewState<T> extends State<AsyncView<T>> {
     }
   }
 
+  /// Wraps the error / empty state so it's horizontally centred with a
+  /// sensible top offset, instead of pinned to the top-left corner. Uses a
+  /// full-width Row rather than `Center` so it's safe inside an unbounded
+  /// scroll view too.
+  Widget _center(Widget child) {
+    final top = widget.padding.resolve(TextDirection.ltr).top;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(40, top > 0 ? top + 20 : 60, 40, 40),
+      child: Row(
+        children: [Expanded(child: Center(child: child))],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<T>(
@@ -78,18 +92,13 @@ class _AsyncViewState<T> extends State<AsyncView<T>> {
             // replacing the screen with an error block.
             return widget.builder(context, _lastData as T, _reload);
           }
-          return Padding(
-            padding: widget.padding,
-            child: _ErrorBlock(error: snap.error!, onRetry: _reload),
-          );
+          return _center(_ErrorBlock(error: snap.error!, onRetry: _reload));
         }
         final data = snap.data as T;
         _lastData = data;
         if (widget.emptyWhen?.call(data) ?? false) {
-          return Padding(
-            padding: widget.padding,
-            child: _EmptyBlock(icon: widget.emptyIcon, label: widget.emptyLabel),
-          );
+          return _center(
+              _EmptyBlock(icon: widget.emptyIcon, label: widget.emptyLabel));
         }
         return widget.builder(context, data, _reload);
       },

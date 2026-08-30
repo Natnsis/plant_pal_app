@@ -40,12 +40,20 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   int? _lastUnread;
   int _lastShownNotifId = 0;
 
-  static const _pages = [
-    HomeScreen(),
-    CollectionScreen(),
-    JournalScreen(),
-    ProfileScreen(),
-  ];
+  // Built lazily: a tab's screen (and its API calls) doesn't exist until you
+  // first open it, so app-open fires only Home's requests, not all four
+  // tabs' at once.
+  final List<Widget?> _built = List<Widget?>.filled(4, null);
+
+  Widget _pageAt(int i) {
+    _built[i] ??= switch (i) {
+      0 => const HomeScreen(),
+      1 => const CollectionScreen(),
+      2 => const JournalScreen(),
+      _ => const ProfileScreen(),
+    };
+    return _built[i]!;
+  }
 
   @override
   void initState() {
@@ -145,7 +153,7 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   }
 
   void _goToTab(int i) {
-    if (i >= 0 && i < _pages.length) setState(() => _index = i);
+    if (i >= 0 && i < _built.length) setState(() => _index = i);
   }
 
   @override
@@ -155,7 +163,17 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
       child: Scaffold(
         backgroundColor: PP.bone,
         extendBody: true,
-        body: IndexedStack(index: _index, children: _pages),
+        body: IndexedStack(
+          index: _index,
+          children: [
+            for (var i = 0; i < _built.length; i++)
+              // Offstage tabs stay as a lightweight placeholder until first
+              // opened; visited tabs keep their state via IndexedStack.
+              i == _index || _built[i] != null
+                  ? _pageAt(i)
+                  : const SizedBox.shrink(),
+          ],
+        ),
         bottomNavigationBar: PPBottomBar(
           currentIndex: _index,
           onSelect: _goToTab,

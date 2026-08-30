@@ -24,9 +24,11 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeData {
-  _HomeData(this.plants, this.reminders, this.forecast, this.unread);
+  _HomeData(this.plants, this.reminders, this.doneToday, this.forecast,
+      this.unread);
   final List<Plant> plants;
-  final List<Reminder> reminders;
+  final List<Reminder> reminders; // due today (incl. overdue), incomplete
+  final int doneToday; // care tasks completed today
   final Forecast? forecast;
   final int unread;
 }
@@ -36,8 +38,22 @@ class _HomeScreenState extends State<HomeScreen> {
   final _busyReminders = <int>{};
 
   Future<_HomeData> _load() async {
+    // Plants is the one call worth failing the whole screen for — if that's
+    // down, there's nothing meaningful to show. Everything else degrades.
     final plants = await _api.plants();
-    final reminders = await _api.todayReminders();
+    List<Reminder> reminders = const [];
+    try {
+      reminders = await _api.todayReminders();
+    } catch (_) {}
+    var doneToday = 0;
+    try {
+      final today = DateTime.now();
+      final start = DateTime(today.year, today.month, today.day);
+      final completed = await _api.reminders(
+          status: 'completed', from: start, to: start);
+      doneToday =
+          completed.where((r) => !r.skipped).length;
+    } catch (_) {}
     Forecast? forecast;
     try {
       forecast = await _api.weather();
@@ -48,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       unread = await _api.unreadCount();
     } catch (_) {}
-    return _HomeData(plants, reminders, forecast, unread);
+    return _HomeData(plants, reminders, doneToday, forecast, unread);
   }
 
   @override
@@ -89,8 +105,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 GestureDetector(
                   onTap: () => Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => const GardenHealthScreen())),
-                  child: _healthCard(user, avgHealth,
-                      data.reminders.length - pending, data.reminders.length),
+                  child: _healthCard(user, avgHealth, data.doneToday,
+                      data.doneToday + pending),
                 ),
                 const SizedBox(height: 26),
                 SectionHeader('Today’s care',
@@ -101,11 +117,33 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 12),
                 if (data.reminders.isEmpty)
                   _softNote('No care tasks scheduled for today.')
-                else
-                  for (final r in data.reminders) ...[
+                else ...[
+                  for (final r in data.reminders.take(5)) ...[
                     _reminderTile(r, reload),
                     const SizedBox(height: 10),
                   ],
+                  if (data.reminders.length > 5)
+                    GestureDetector(
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const RemindersScreen())),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: PP.card.withValues(alpha: 0.6),
+                          borderRadius: BorderRadius.circular(22),
+                        ),
+                        child: Text(
+                            '+ ${data.reminders.length - 5} more '
+                            '${data.reminders.length - 5 == 1 ? 'task' : 'tasks'} today',
+                            style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: PP.forest)),
+                      ),
+                    ),
+                ],
                 const SizedBox(height: 16),
                 SectionHeader('Your plants',
                     trailing: data.plants.isEmpty

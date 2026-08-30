@@ -19,6 +19,9 @@ import android.provider.MediaStore
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -42,16 +45,19 @@ class MainActivity : FlutterActivity() {
     private val mediaChannelName = "plantpal/media"
     private val notifChannelName = "plantpal/notifications"
     private val linkChannelName = "plantpal/links"
+    private val authChannelName = "plantpal/auth"
     private val reqCamera = 7001
     private val reqGallery = 7002
     private val reqNotifPerm = 7003
     private val reqCameraPerm = 7004
+    private val reqGoogle = 7005
     private val maxDim = 1600
     private val jpegQuality = 85
     private val androidNotifChannelId = "plantpal_care"
 
     private var pendingMediaResult: MethodChannel.Result? = null
     private var pendingPermResult: MethodChannel.Result? = null
+    private var pendingAuthResult: MethodChannel.Result? = null
     private var cameraFile: File? = null
 
     private var initialLink: String? = null
@@ -89,6 +95,25 @@ class MainActivity : FlutterActivity() {
                     }
                     else -> result.notImplemented()
                 }
+            }
+        }
+
+        MethodChannel(messenger, authChannelName).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "signIn" -> googleSignIn(call.argument<String>("webClientId"), result)
+                "signOut" -> {
+                    try {
+                        GoogleSignIn.getClient(
+                            this,
+                            GoogleSignInOptions.Builder(
+                                GoogleSignInOptions.DEFAULT_SIGN_IN
+                            ).build(),
+                        ).signOut()
+                    } catch (_: Exception) {
+                    }
+                    result.success(null)
+                }
+                else -> result.notImplemented()
             }
         }
 
@@ -158,6 +183,34 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    // ── google sign-in ──────────────────────────────────────────────────────
+
+    private fun googleSignIn(webClientId: String?, result: MethodChannel.Result) {
+        if (webClientId.isNullOrBlank()) {
+            result.error("no_client_id", "Missing Google web client id", null)
+            return
+        }
+        if (pendingAuthResult != null) {
+            result.error("busy", "A sign-in is already in progress", null)
+            return
+        }
+        try {
+            val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestIdToken(webClientId)
+                .requestEmail()
+                .build()
+            val client = GoogleSignIn.getClient(this, gso)
+            // Sign out first so the account chooser always appears rather than
+            // silently reusing a stale account.
+            client.signOut().addOnCompleteListener {
+                pendingAuthResult = result
+                startActivityForResult(client.signInIntent, reqGoogle)
+            }
+        } catch (e: Exception) {
+            result.error("signin_failed", e.message, null)
+        }
+    }
+
     private fun startGallery(result: MethodChannel.Result) {
         if (pendingMediaResult != null) {
             result.error("busy", "Another capture is already in progress", null)
@@ -177,6 +230,32 @@ class MainActivity : FlutterActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == reqGoogle) {
+            val authResult = pendingAuthResult ?: return
+            pendingAuthResult = null
+            try {
+                val account = GoogleSignIn.getSignedInAccountFromIntent(data)
+                    .getResult(ApiException::class.java)
+                val idToken = account?.idToken
+                if (idToken.isNullOrBlank()) {
+                    authResult.error("no_token", "Google returned no ID token", null)
+                } else {
+                    authResult.success(idToken)
+                }
+            } catch (e: ApiException) {
+                // 12501 = user cancelled the chooser.
+                if (e.statusCode == 12501) {
+                    authResult.success(null)
+                } else {
+                    authResult.error("signin_failed", "Google sign-in failed (${e.statusCode})", null)
+                }
+            } catch (e: Exception) {
+                authResult.error("signin_failed", e.message, null)
+            }
+            return
+        }
+
         val result = pendingMediaResult ?: return
         pendingMediaResult = null
         try {

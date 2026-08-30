@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../api/api_client.dart';
+import '../api/google_auth.dart';
 import '../api/plantpal_api.dart';
 import '../api/token_store.dart';
 import '../models/models.dart';
@@ -99,6 +100,7 @@ class AuthController extends ChangeNotifier {
     try {
       await _api.logout();
     } catch (_) {}
+    await GoogleAuth.signOut(); // so a later Google sign-in shows the chooser
     user = null;
     status = AuthStatus.signedOut;
     notifyListeners();
