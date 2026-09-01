@@ -38,33 +38,34 @@ class _HomeScreenState extends State<HomeScreen> {
   final _busyReminders = <int>{};
 
   Future<_HomeData> _load() async {
+    final today = DateTime.now();
+    final start = DateTime(today.year, today.month, today.day);
+
+    // Fire every request at once — on a cold backend the old sequential
+    // awaits stacked five round-trips before Home could paint. Each
+    // optional call keeps its own fallback so one slow/flaky endpoint
+    // (weather, especially) never holds up the screen.
+    final plantsF = _api.plants();
+    final remindersF =
+        _api.todayReminders().catchError((_) => const <Reminder>[]);
+    final doneF = _api
+        .reminders(status: 'completed', from: start, to: start)
+        .then((c) => c.where((r) => !r.skipped).length)
+        .catchError((_) => 0);
+    final forecastF =
+        _api.weather().then<Forecast?>((f) => f).catchError((_) => null);
+    final unreadF = _api.unreadCount().catchError((_) => 0);
+
     // Plants is the one call worth failing the whole screen for — if that's
-    // down, there's nothing meaningful to show. Everything else degrades.
-    final plants = await _api.plants();
-    List<Reminder> reminders = const [];
-    try {
-      reminders = await _api.todayReminders();
-    } catch (_) {}
-    var doneToday = 0;
-    try {
-      final today = DateTime.now();
-      final start = DateTime(today.year, today.month, today.day);
-      final completed = await _api.reminders(
-          status: 'completed', from: start, to: start);
-      doneToday =
-          completed.where((r) => !r.skipped).length;
-    } catch (_) {}
-    Forecast? forecast;
-    try {
-      forecast = await _api.weather();
-    } catch (_) {
-      forecast = null; // upstream weather provider is flaky
-    }
-    var unread = 0;
-    try {
-      unread = await _api.unreadCount();
-    } catch (_) {}
-    return _HomeData(plants, reminders, doneToday, forecast, unread);
+    // down, there's nothing meaningful to show.
+    final plants = await plantsF;
+    return _HomeData(
+      plants,
+      await remindersF,
+      await doneF,
+      await forecastF,
+      await unreadF,
+    );
   }
 
   @override
@@ -89,7 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(22, 22, 22, 120),
               children: [
-                _header(context, user, data.unread),
+                _header(context, user, data.unread, reload),
                 const SizedBox(height: 22),
                 Text(
                   pending == 0
@@ -188,7 +189,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 color: PP.inkA(0.55))),
       );
 
-  Widget _header(BuildContext context, UserProfile? user, int unread) {
+  Widget _header(BuildContext context, UserProfile? user, int unread,
+      Future<void> Function() reload) {
     final name = (user?.fullName ?? 'there').split(' ').first;
     return Row(
       children: [
@@ -220,9 +222,12 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(width: 9),
         SquircleIconButton(
           icon: LucideIcons.bell,
-          badge: unread > 0,
-          onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const NotificationsScreen())),
+          badgeCount: unread,
+          onTap: () async {
+            await Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const NotificationsScreen()));
+            if (context.mounted) reload();
+          },
         ),
       ],
     );

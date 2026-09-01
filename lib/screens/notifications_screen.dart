@@ -7,6 +7,8 @@ import '../models/models.dart';
 import '../theme/pp_theme.dart';
 import '../widgets/async_view.dart';
 import '../widgets/pp_common.dart';
+import 'community_post_screen.dart';
+import 'plant_detail_screen.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -86,7 +88,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       ),
                       onDismissed: (_) => _delete(it, reload),
                       child: GestureDetector(
-                        onTap: it.isRead ? null : () => _markRead(it, reload),
+                        onTap: () => _open(it, reload),
                         child: _NotifTile(item: it),
                       ),
                     ),
@@ -101,13 +103,40 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  Future<void> _markRead(InboxItem it, Future<void> Function() reload) async {
-    try {
-      await _api.markRead(it.id);
-      await reload();
-    } on ApiException catch (e) {
-      if (mounted) showPPSnack(context, e.message, error: true);
+  /// Tap = mark read + jump to whatever the notification is about.
+  Future<void> _open(InboxItem it, Future<void> Function() reload) async {
+    if (!it.isRead) {
+      try {
+        await _api.markRead(it.id);
+      } on ApiException {
+        // non-fatal — still navigate
+      }
     }
+    if (!mounted) return;
+
+    final dest = _destinationFor(it);
+    if (dest != null) {
+      await Navigator.of(context).push(dest);
+    }
+    await reload();
+  }
+
+  Route<dynamic>? _destinationFor(InboxItem it) {
+    final uri = Uri.tryParse(it.actionUrl);
+    final seg = uri != null && uri.scheme == 'plantpal'
+        ? [uri.host, ...uri.pathSegments].where((s) => s.isNotEmpty).toList()
+        : const <String>[];
+    final urlId = seg.length >= 2 ? int.tryParse(seg[1]) : null;
+
+    final postId = it.relatedPostId ?? (seg.isNotEmpty && seg[0] == 'post' ? urlId : null);
+    if (postId != null) {
+      return MaterialPageRoute(builder: (_) => CommunityPostScreen(postId: postId));
+    }
+    final plantId = it.relatedPlantId ?? (seg.isNotEmpty && seg[0] == 'plant' ? urlId : null);
+    if (plantId != null) {
+      return MaterialPageRoute(builder: (_) => PlantDetailScreen(plantId: plantId));
+    }
+    return null;
   }
 
   Future<void> _delete(InboxItem it, Future<void> Function() reload) async {
@@ -130,6 +159,7 @@ class _NotifTile extends StatelessWidget {
       'reminder' => (LucideIcons.droplet, PP.pale1, PP.forest),
       'achievement' => (LucideIcons.trendingUp, PP.amberBg, PP.amberFg),
       'care_tip' => (LucideIcons.info, const Color(0xFFE1E7D5), PP.inkA(0.6)),
+      'community' => (LucideIcons.messageCircle, PP.pale1, PP.forest),
       _ => (LucideIcons.bell, const Color(0xFFE1E7D5), PP.inkA(0.6)),
     };
     return Container(

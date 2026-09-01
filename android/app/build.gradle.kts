@@ -55,4 +55,11 @@ dependencies {
     // Native Google Sign-In (no google_sign_in plugin on this SDK) — used by
     // the plantpal/auth MethodChannel to fetch an ID token for POST /auth/google.
     implementation("com.google.android.gms:play-services-auth:21.3.0")
+    // FCM push (plantpal/push bridge + PlantPalFirebaseMessagingService).
+    // Deliberately NOT applying the com.google.gms.google-services Gradle
+    // plugin — it lags AGP 9. Firebase is configured instead from string
+    // resources in res/values/firebase.xml, which FirebaseInitProvider
+    // reads at process start (the plugin-less setup path).
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
 }

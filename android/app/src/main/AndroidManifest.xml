@@ -52,6 +52,22 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
+        <!-- FCM push. Data-only messages, so this service handles every
+             message and posts the notification itself (see
+             PlantPalFirebaseMessagingService.kt). -->
+        <service
+            android:name=".PlantPalFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <!-- Channel the FCM SDK falls back to if it ever builds a
+             notification itself; keep it the same as Notifications.kt. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="plantpal_care" />
+
         <!-- Lets the hand-rolled camera bridge (MainActivity.kt) hand a
              writable file URI to the system camera app without holding the
              CAMERA permission. -->

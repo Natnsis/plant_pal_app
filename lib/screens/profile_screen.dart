@@ -207,16 +207,36 @@ class _ProfileScreenState extends State<ProfileScreen>
                   child: _settingLabel(
                       'Preferred time', 'When daily reminders arrive'),
                 ),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                  decoration: BoxDecoration(
-                    color: PP.field,
-                    borderRadius: BorderRadius.circular(18),
+                Opacity(
+                  opacity: _savingKeys.contains('preferred') ||
+                          (!_osNotifsOn)
+                      ? 0.4
+                      : 1,
+                  child: GestureDetector(
+                    onTap: _savingKeys.contains('preferred')
+                        ? null
+                        : () => _pickPreferredTime(s),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 9),
+                      decoration: BoxDecoration(
+                        color: PP.field,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(s.preferredTimeLabel,
+                              style: const TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w600)),
+                          const SizedBox(width: 6),
+                          Icon(LucideIcons.clock,
+                              size: 14, color: PP.inkA(0.5)),
+                        ],
+                      ),
+                    ),
                   ),
-                  child: Text(s.preferredTimeLabel,
-                      style: const TextStyle(
-                          fontSize: 13.5, fontWeight: FontWeight.w600)),
                 ),
               ],
             ),
@@ -282,6 +302,21 @@ class _ProfileScreenState extends State<ProfileScreen>
       if (r == NotifPermission.granted) return;
     }
     await NotifChannel.openSettings();
+  }
+
+  Future<void> _pickPreferredTime(NotificationSettings s) async {
+    final current = s.preferredTime;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: current != null
+          ? TimeOfDay(hour: current.hour, minute: current.minute)
+          : const TimeOfDay(hour: 8, minute: 0),
+      helpText: 'When should daily reminders arrive?',
+    );
+    if (picked == null) return;
+    // Model only reads hour/minute off this; the date part is arbitrary.
+    final asDate = DateTime(2000, 1, 1, picked.hour, picked.minute);
+    await _save('preferred', s.copyWith(preferredTime: asDate));
   }
 
   Future<void> _save(String key, NotificationSettings next) async {

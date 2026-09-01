@@ -83,6 +83,7 @@ class SquircleIconButton extends StatelessWidget {
     this.foreground = PP.ink,
     this.iconSize = 18,
     this.badge = false,
+    this.badgeCount = 0,
   });
 
   final IconData icon;
@@ -92,7 +93,12 @@ class SquircleIconButton extends StatelessWidget {
   final Color? background;
   final Color foreground;
   final double iconSize;
+
+  /// Show a plain dot (no number). Ignored when [badgeCount] > 0.
   final bool badge;
+
+  /// Show a numeric pill badge. Takes precedence over [badge]; 0 hides it.
+  final int badgeCount;
 
   @override
   Widget build(BuildContext context) {
@@ -110,7 +116,32 @@ class SquircleIconButton extends StatelessWidget {
             ),
             child: Icon(icon, size: iconSize, color: foreground),
           ),
-          if (badge)
+          if (badgeCount > 0)
+            Positioned(
+              top: -5,
+              right: -4,
+              child: Container(
+                constraints: const BoxConstraints(minWidth: 17),
+                height: 17,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: PP.forest,
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(color: PP.bone, width: 2),
+                ),
+                child: Text(
+                  badgeCount > 99 ? '99+' : '$badgeCount',
+                  style: const TextStyle(
+                    color: PP.bone,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w800,
+                    height: 1,
+                  ),
+                ),
+              ),
+            )
+          else if (badge)
             Positioned(
               top: 8,
               right: 9,

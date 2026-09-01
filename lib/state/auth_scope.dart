@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../api/api_client.dart';
 import '../api/google_auth.dart';
 import '../api/plantpal_api.dart';
+import '../api/push_channel.dart';
 import '../api/token_store.dart';
 import '../models/models.dart';
 
@@ -20,13 +21,31 @@ class AuthController extends ChangeNotifier {
 
   bool get isSignedIn => status == AuthStatus.signedIn;
 
-  /// Wire the client's "refresh failed" hook to a forced sign-out.
+  /// Wire the client's "refresh failed" hook to a forced sign-out, and keep
+  /// the backend's copy of this device's FCM push token fresh.
   void bootstrapHooks() {
     ApiClient.instance.onAuthLost = () {
       status = AuthStatus.signedOut;
       user = null;
       notifyListeners();
     };
+    // FCM can rotate the token mid-session; re-register when it does.
+    PushChannel.onTokenRefresh.listen((token) {
+      if (isSignedIn) {
+        PlantPalApi.instance.registerDevice(token).catchError((_) {});
+      }
+    });
+  }
+
+  /// Best-effort: hand this device's current FCM token to the backend so it
+  /// can push reminders while the app is closed. Never throws.
+  Future<void> _syncPushToken() async {
+    try {
+      final token = await PushChannel.getToken();
+      if (token != null) await _api.registerDevice(token);
+    } catch (_) {
+      // No Play Services, offline, bridge missing — push just stays off.
+    }
   }
 
   Future<void> restore() async {
@@ -39,6 +58,7 @@ class AuthController extends ChangeNotifier {
     try {
       user = await _api.me();
       status = AuthStatus.signedIn;
+      _syncPushToken();
     } catch (_) {
       // Token stale and refresh failed.
       await TokenStore.instance.clear();
@@ -80,13 +100,18 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> _loadUserAndSignIn() async {
+    // Flip to signed-in as soon as we hold tokens so the UI can route to
+    // Home immediately; the profile and push token load in the background
+    // (Home reads `user` reactively and tolerates a null while it arrives).
+    status = AuthStatus.signedIn;
+    notifyListeners();
+    _syncPushToken();
     try {
       user = await _api.me();
+      notifyListeners();
     } catch (_) {
       user = null;
     }
-    status = AuthStatus.signedIn;
-    notifyListeners();
   }
 
   Future<void> refreshUser() async {
@@ -97,6 +122,15 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    // Drop this device's push token first, while the access token is still
+    // valid, then kill it locally so a shared device stops getting the
+    // previous user's reminders.
+    try {
+      final token = await PushChannel.getToken();
+      if (token != null) await _api.unregisterDevice(token);
+    } catch (_) {}
+    await PushChannel.deleteToken();
+
     try {
       await _api.logout();
     } catch (_) {}

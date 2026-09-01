@@ -639,15 +639,19 @@ class InboxItem {
     required this.isRead,
     required this.actionUrl,
     required this.createdAt,
+    this.relatedPlantId,
+    this.relatedPostId,
   });
 
   final int id;
-  final String type; // reminder | care_tip | system | achievement
+  final String type; // reminder | care_tip | system | achievement | community
   final String title;
   final String body;
   final bool isRead;
-  final String actionUrl;
+  final String actionUrl; // e.g. plantpal://plant/12, plantpal://post/8
   final DateTime? createdAt;
+  final int? relatedPlantId;
+  final int? relatedPostId;
 
   factory InboxItem.fromJson(Map<String, dynamic> j) => InboxItem(
     id: idOf(j),
@@ -657,7 +661,14 @@ class InboxItem {
     isRead: asBool(pick(j, ['is_read', 'isRead'])),
     actionUrl: asString(pick(j, ['action_url', 'actionUrl'])),
     createdAt: createdAtOf(j),
+    relatedPlantId: _posInt(pick(j, ['related_plant_id', 'relatedPlantId'])),
+    relatedPostId: _posInt(pick(j, ['related_post_id', 'relatedPostId'])),
   );
+
+  static int? _posInt(Object? v) {
+    final n = asInt(v, 0);
+    return n > 0 ? n : null;
+  }
 }
 
 // ─────────────────────────── scan / diagnosis ───────────────────────────

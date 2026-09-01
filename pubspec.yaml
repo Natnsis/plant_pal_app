@@ -79,6 +79,7 @@ flutter:
     - assets/img/sample_plant.jpg
     - assets/img/onboarding.jpg
     - assets/img/profile
+    - assets/img/splash.jpg
 
   # To add assets to your application, add an assets section, like this:
   # assets:

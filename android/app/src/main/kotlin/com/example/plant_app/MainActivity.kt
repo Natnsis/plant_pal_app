@@ -2,10 +2,6 @@ package com.example.plant_app
 
 import android.Manifest
 import android.app.Activity
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -16,12 +12,12 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
-import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
+import com.google.firebase.messaging.FirebaseMessaging
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -38,14 +34,26 @@ import java.io.InputStream
  *                               permission) + system photo picker -> JPEG bytes.
  *  - `plantpal/notifications` : POST_NOTIFICATIONS permission flow + posting
  *                               real notifications to the phone's shade.
+ *  - `plantpal/push`          : FCM registration token get/delete for backend
+ *                               push (PlantPalFirebaseMessagingService).
  *
- * See lib/api/media_channel.dart and lib/api/notif_channel.dart.
+ * See lib/api/media_channel.dart, lib/api/notif_channel.dart and
+ * lib/api/push_channel.dart.
  */
 class MainActivity : FlutterActivity() {
+    companion object {
+        /** Live handle to the plantpal/push channel while a Flutter engine
+         *  is attached, so PlantPalFirebaseMessagingService.onNewToken can
+         *  push a refreshed token straight to Dart. Null when detached. */
+        @JvmStatic
+        var pushChannel: MethodChannel? = null
+    }
+
     private val mediaChannelName = "plantpal/media"
     private val notifChannelName = "plantpal/notifications"
     private val linkChannelName = "plantpal/links"
     private val authChannelName = "plantpal/auth"
+    private val pushChannelName = "plantpal/push"
     private val reqCamera = 7001
     private val reqGallery = 7002
     private val reqNotifPerm = 7003
@@ -53,7 +61,6 @@ class MainActivity : FlutterActivity() {
     private val reqGoogle = 7005
     private val maxDim = 1600
     private val jpegQuality = 85
-    private val androidNotifChannelId = "plantpal_care"
 
     private var pendingMediaResult: MethodChannel.Result? = null
     private var pendingPermResult: MethodChannel.Result? = null
@@ -65,14 +72,19 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        initialLink = intent?.dataString
+        initialLink = linkFrom(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.dataString?.let { linkChannel?.invokeMethod("link", it) }
+        linkFrom(intent)?.let { linkChannel?.invokeMethod("link", it) }
     }
+
+    /** A deep link either from a real `plantpal://` VIEW intent or from a
+     *  tapped notification's [Notifications.EXTRA_LINK] extra. */
+    private fun linkFrom(intent: Intent?): String? =
+        intent?.dataString ?: intent?.getStringExtra(Notifications.EXTRA_LINK)
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -136,6 +148,44 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        MethodChannel(messenger, pushChannelName).also { ch ->
+            pushChannel = ch
+            ch.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getToken" -> FirebaseMessaging.getInstance().token
+                        .addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                result.success(task.result)
+                            } else {
+                                result.error(
+                                    "token_failed",
+                                    task.exception?.message ?: "Could not get FCM token",
+                                    null,
+                                )
+                            }
+                        }
+                    "deleteToken" -> FirebaseMessaging.getInstance().deleteToken()
+                        .addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                result.success(null)
+                            } else {
+                                result.error(
+                                    "delete_failed",
+                                    task.exception?.message ?: "Could not delete FCM token",
+                                    null,
+                                )
+                            }
+                        }
+                    else -> result.notImplemented()
+                }
+            }
+        }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        pushChannel = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     // ── media ────────────────────────────────────────────────────────────────
@@ -418,46 +468,10 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun ensureNotifChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            if (mgr.getNotificationChannel(androidNotifChannelId) == null) {
-                mgr.createNotificationChannel(
-                    NotificationChannel(
-                        androidNotifChannelId,
-                        "Plant care reminders",
-                        NotificationManager.IMPORTANCE_DEFAULT,
-                    ).apply { description = "Watering, feeding and check-up reminders" }
-                )
-            }
-        }
-    }
-
+    // Posting a notification (channel setup, permission check, tap intent)
+    // lives in Notifications.kt so this path and the FCM push path build an
+    // identical notification.
     private fun showNotification(id: Int, title: String, body: String) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(
-                this, Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            return // silently no-op if not permitted
-        }
-        ensureNotifChannel()
-        val tapIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val pending = PendingIntent.getActivity(
-            this, id, tapIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val notification = NotificationCompat.Builder(this, androidNotifChannelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setContentIntent(pending)
-            .build()
-        androidx.core.app.NotificationManagerCompat.from(this).notify(id, notification)
+        Notifications.post(this, id, title, body)
     }
 }

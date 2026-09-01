@@ -450,6 +450,16 @@ class PlantPalApi {
   Future<void> deleteNotification(int id) =>
       _c.deleteJson<Map<String, dynamic>>('/notifications/$id');
 
+  /// Register this device's FCM token so the backend can push reminders to
+  /// it even when the app is closed. Idempotent server-side.
+  Future<void> registerDevice(String token) =>
+      _c.postJson<Map<String, dynamic>>('/devices',
+          body: {'token': token, 'platform': 'android'});
+
+  /// Drop this device's FCM token from the backend (on logout).
+  Future<void> unregisterDevice(String token) =>
+      _c.deleteJson<Map<String, dynamic>>('/devices', body: {'token': token});
+
   // ── scan ────────────────────────────────────────────────────────────────
   Future<ScanResult> scan(Uint8List bytes,
           {String filename = 'plant.jpg'}) async =>
